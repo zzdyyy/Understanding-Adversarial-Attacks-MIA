@@ -1,6 +1,8 @@
 from __future__ import absolute_import
 from __future__ import print_function
 
+import logging
+logging.basicConfig(level=logging.DEBUG)
 import os
 import argparse
 import warnings
@@ -17,13 +19,14 @@ from cw_attacks import CarliniL2, CarliniLID
 ATTACK_PARAMS = {
     'mnist': {'eps': 0.40, 'eps_iter': 0.010, 'image_size': 28, 'num_channels': 1, 'num_labels': 10},
     'cifar': {'eps': 0.050, 'eps_iter': 0.005, 'image_size': 32, 'num_channels': 3, 'num_labels': 10},
-    'svhn': {'eps': 0.130, 'eps_iter': 0.010, 'image_size': 32, 'num_channels': 3, 'num_labels': 10}
+    'svhn': {'eps': 0.130, 'eps_iter': 0.010, 'image_size': 32, 'num_channels': 3, 'num_labels': 10},
+    'dr': {'eps': 2/255*2, 'eps_iter': 2/255*2 / 10, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},  # TODO: not determined
+    'cxr': {'eps': 3/255*2, 'eps_iter': 3/255*2 / 10, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},
+    'derm': {'eps': 2/255*2, 'eps_iter': 2/255*2 / 10, 'image_size': 224, 'num_channels': 3, 'num_labels': 2}
 }
 
-# CLIP_MIN = 0.0
-# CLIP_MAX = 1.0
-CLIP_MIN = -0.5
-CLIP_MAX = 0.5
+CLIP_MIN = {'mnist': -0.5, 'cifar': -0.5, 'svhn': -0.5, 'dr': -1.0, 'cxr': -1.0, 'derm': -1.0}
+CLIP_MAX = {'mnist':  0.5, 'cifar':  0.5, 'svhn':  0.5, 'dr':  1.0, 'cxr':  1.0, 'derm':  1.0}
 PATH_DATA = "data/"
 
 def craft_one_type(sess, model, X, Y, dataset, attack, batch_size):
@@ -42,31 +45,31 @@ def craft_one_type(sess, model, X, Y, dataset, attack, batch_size):
         # FGSM attack
         print('Crafting fgsm adversarial samples...')
         X_adv = fast_gradient_sign_method(
-            sess, model, X, Y, eps=ATTACK_PARAMS[dataset]['eps'], clip_min=CLIP_MIN,
-            clip_max=CLIP_MAX, batch_size=batch_size
+            sess, model, X, Y, eps=ATTACK_PARAMS[dataset]['eps'], clip_min=CLIP_MIN[dataset],
+            clip_max=CLIP_MAX[dataset], batch_size=batch_size
         )
     elif attack in ['bim-a', 'bim-b']:
         # BIM attack
         print('Crafting %s adversarial samples...' % attack)
         its, results = basic_iterative_method(
             sess, model, X, Y, eps=ATTACK_PARAMS[dataset]['eps'],
-            eps_iter=ATTACK_PARAMS[dataset]['eps_iter'], clip_min=CLIP_MIN,
-            clip_max=CLIP_MAX, batch_size=batch_size
+            eps_iter=ATTACK_PARAMS[dataset]['eps_iter'], clip_min=CLIP_MIN[dataset],
+            clip_max=CLIP_MAX[dataset], batch_size=batch_size, keep_history=dataset in ['mnist', 'cifar', 'svhn']
         )
-        if attack == 'bim-a':
+        if attack == 'bim-a' and dataset in ['mnist', 'cifar', 'svhn']:
             # BIM-A
             # For each sample, select the time step where that sample first
             # became misclassified
             X_adv = np.asarray([results[its[i], i] for i in range(len(Y))])
         else:
-            # BIM-B
+            # BIM-B or dataset in medical dataset
             # For each sample, select the very last time step
             X_adv = results[-1]
     elif attack == 'jsma':
         # JSMA attack
         print('Crafting jsma adversarial samples. This may take > 5 hours')
         X_adv = saliency_map_method(
-            sess, model, X, Y, theta=1, gamma=0.1, clip_min=CLIP_MIN, clip_max=CLIP_MAX
+            sess, model, X, Y, theta=1, gamma=0.1, clip_min=CLIP_MIN[dataset], clip_max=CLIP_MAX[dataset]
         )
     elif attack == 'cw-l2':
         # C&W attack
@@ -85,7 +88,7 @@ def craft_one_type(sess, model, X, Y, dataset, attack, batch_size):
         cw_attack = CarliniLID(sess, model, image_size, num_channels, num_labels, batch_size=batch_size)
         X_adv = cw_attack.attack(X, Y)
 
-    _, acc = model.evaluate(X_adv, Y, batch_size=batch_size, verbose=0)
+    _, acc = model.evaluate(X_adv, Y, batch_size=batch_size, verbose=1)
     print("Model accuracy on the adversarial test set: %0.2f%%" % (100 * acc))
     np.save(os.path.join(PATH_DATA, 'Adv_%s_%s.npy' % (dataset, attack)), X_adv)
     l2_diff = np.linalg.norm(
@@ -97,8 +100,8 @@ def craft_one_type(sess, model, X, Y, dataset, attack, batch_size):
           (attack, l2_diff))
 
 def main(args):
-    assert args.dataset in ['mnist', 'cifar', 'svhn'], \
-        "Dataset parameter must be either 'mnist', 'cifar' or 'svhn'"
+    assert args.dataset in ['mnist', 'cifar', 'svhn', 'dr', 'cxr', 'derm'], \
+        "Dataset parameter must be either 'mnist', 'cifar', 'svhn', 'dr', 'cxr', or 'derm'"
     assert args.attack in ['fgsm', 'bim-a', 'bim-b', 'jsma', 'cw-l2', 'all', 'cw-lid'], \
         "Attack parameter must be either 'fgsm', 'bim-a', 'bim-b', " \
         "'jsma', 'cw-l2', 'all' or 'cw-lid' for attacking LID detector"
@@ -120,7 +123,7 @@ def main(args):
         # use softmax=False to load without softmax layer
         model = get_model(args.dataset, softmax=False)
         model.compile(
-            loss=cross_entropy,
+            loss=cross_entropy,  # TODO: this is for logits, but medical models output softmax
             optimizer='adadelta',
             metrics=['accuracy']
         )
@@ -130,8 +133,13 @@ def main(args):
 
     _, _, X_test, Y_test = get_data(args.dataset)
     _, acc = model.evaluate(X_test, Y_test, batch_size=args.batch_size,
-                            verbose=0)
+                            verbose=1)
     print("Accuracy on the test set: %0.2f%%" % (100*acc))
+
+    if args.dataset in ['dr', 'cxr', 'derm']:
+        def predict_classes(x, batch_size=32, verbose=0):
+            return model.predict(x, batch_size=batch_size, verbose=verbose).argmax(axis=-1)
+        model.predict_classes = predict_classes
 
     if args.attack == 'cw-lid': # white box attacking LID detector - an example
         X_test = X_test[:1000]
@@ -154,7 +162,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-d', '--dataset',
-        help="Dataset to use; either 'mnist', 'cifar' or 'svhn'",
+        help="Dataset to use; either 'mnist', 'cifar', 'svhn', 'dr', 'cxr', or 'derm'",
         required=True, type=str
     )
     parser.add_argument(

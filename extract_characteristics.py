@@ -14,7 +14,7 @@ from util import (get_data, get_noisy_samples, get_mc_predictions,
 
 # In the original paper, the author used optimal KDE bandwidths dataset-wise
 #  that were determined from CV tuning
-BANDWIDTHS = {'mnist': 3.7926, 'cifar': 0.26, 'svhn': 1.00}
+BANDWIDTHS = {'mnist': 3.7926, 'cifar': 0.26, 'svhn': 1.00, 'dr':1.00, 'cxr':1.00, 'derm':1.00}
 
 # Here we further tune bandwidth for each of the 10 classes in mnist, cifar and svhn
 # Run tune_kernal_density.py to get the following settings.
@@ -48,7 +48,7 @@ def merge_and_generate_labels(X_pos, X_neg):
     return X, y
 
 
-def get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv):
+def get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv, dataset):
     """
     Get kernel density scores
     :param model: 
@@ -62,13 +62,13 @@ def get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv):
     """
     # Get deep feature representations
     print('Getting deep feature representations...')
-    X_train_features = get_deep_representations(model, X_train,
+    X_train_features = get_deep_representations(model, X_train, index=-2 if dataset in ['dr', 'crx', 'derm'] else -4,
                                                 batch_size=args.batch_size)
-    X_test_normal_features = get_deep_representations(model, X_test,
+    X_test_normal_features = get_deep_representations(model, X_test, index=-2 if dataset in ['dr', 'crx', 'derm'] else -4,
                                                       batch_size=args.batch_size)
-    X_test_noisy_features = get_deep_representations(model, X_test_noisy,
+    X_test_noisy_features = get_deep_representations(model, X_test_noisy, index=-2 if dataset in ['dr', 'crx', 'derm'] else -4,
                                                      batch_size=args.batch_size)
-    X_test_adv_features = get_deep_representations(model, X_test_adv,
+    X_test_adv_features = get_deep_representations(model, X_test_adv, index=-2 if dataset in ['dr', 'crx', 'derm'] else -4,
                                                    batch_size=args.batch_size)
     # Train one KDE per class
     print('Training KDEs...')
@@ -239,7 +239,7 @@ def get_kmeans(model, X_test, X_test_noisy, X_test_adv, k=10, batch_size=100, da
     return artifacts, labels
 
 def main(args):
-    assert args.dataset in ['mnist', 'cifar', 'svhn'], \
+    assert args.dataset in ['mnist', 'cifar', 'svhn', 'dr', 'cxr', 'derm'], \
         "Dataset parameter must be either 'mnist', 'cifar' or 'svhn'"
     assert args.attack in ['fgsm', 'bim-a', 'bim-b', 'jsma', 'cw-l2', 'all'], \
         "Attack parameter must be either 'fgsm', 'bim-a', 'bim-b', " \
@@ -257,6 +257,12 @@ def main(args):
     print('Loading the data and model...')
     # Load the model
     model = load_model(model_file)
+
+    if args.dataset in ['dr', 'cxr', 'derm']:
+        def predict_classes(x, batch_size=32, verbose=0):
+            return model.predict(x, batch_size=batch_size, verbose=verbose).argmax(axis=-1)
+        model.predict_classes = predict_classes
+
     # Load the dataset
     X_train, Y_train, X_test, Y_test = get_data(args.dataset)
     # Check attack type, select adversarial and noisy samples accordingly
@@ -315,7 +321,7 @@ def main(args):
 
     if args.characteristic == 'kd':
         # extract kernel density
-        characteristics, labels = get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv)
+        characteristics, labels = get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv, args.dataset)
         print("KD: [characteristic shape: ", characteristics.shape, ", label shape: ", labels.shape)
 
         # save to file
@@ -340,7 +346,7 @@ def main(args):
 
         # save to file
         # file_name = os.path.join(PATH_DATA, 'lid_%s_%s.npy' % (args.dataset, args.attack))
-        file_name = os.path.join('../data_grid_search/lid_large_batch/', 'lid_%s_%s_%s.npy' %
+        file_name = os.path.join('data/', 'lid_%s_%s_%s.npy' %
                                  (args.dataset, args.attack, args.k_nearest))
 
         data = np.concatenate((characteristics, labels), axis=1)
@@ -357,7 +363,7 @@ def main(args):
         np.save(file_name, data)
     elif args.characteristic == 'all':
         # extract kernel density
-        characteristics, labels = get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv)
+        characteristics, labels = get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv, args.dataset)
         file_name = os.path.join(PATH_DATA, 'kd_%s_%s.npy' % (args.dataset, args.attack))
         data = np.concatenate((characteristics, labels), axis=1)
         np.save(file_name, data)

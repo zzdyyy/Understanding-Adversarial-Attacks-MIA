@@ -48,7 +48,7 @@ def train(dataset='mnist', batch_size=128, epochs=50):
     #     verbose=1,
     #     validation_data=(X_test, Y_test))
 
-    model.save('../data/model_%s.h5' % dataset)
+    model.save('data/model_%s.h5' % dataset)
 
 def main(args):
     """

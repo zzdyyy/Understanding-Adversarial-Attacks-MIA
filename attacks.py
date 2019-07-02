@@ -36,7 +36,7 @@ def fgsm(x, predictions, eps, clip_min=None, clip_max=None, y=None):
         # In this case, use model predictions as ground truth
         y = tf.to_float(
             tf.equal(predictions,
-                     tf.reduce_max(predictions, 1, keep_dims=True)))
+                     tf.reduce_max(predictions, 1, keep_dims=True)))  # tf.equal can broadcast
     y = y / tf.reduce_sum(y, 1, keep_dims=True)
     logits, = predictions.op.inputs
     loss = tf.reduce_mean(
@@ -193,7 +193,7 @@ def fast_gradient_sign_method(sess, model, X, Y, eps, clip_min=None,
 
 
 def basic_iterative_method(sess, model, X, Y, eps, eps_iter, nb_iter=50,
-                           clip_min=None, clip_max=None, batch_size=256):
+                           clip_min=None, clip_max=None, batch_size=256, keep_history=False):
     """
     TODO
     :param sess:
@@ -213,7 +213,10 @@ def basic_iterative_method(sess, model, X, Y, eps, eps_iter, nb_iter=50,
     y = tf.placeholder(tf.float32, shape=(None,)+Y.shape[1:])
     # results will hold the adversarial inputs at each iteration of BIM;
     # thus it will have shape (nb_iter, n_samples, n_rows, n_cols, n_channels)
-    results = np.zeros((nb_iter, X.shape[0],) + X.shape[1:])
+    if keep_history:
+        results = np.zeros((nb_iter, X.shape[0],) + X.shape[1:])
+    else:
+        results = np.zeros((1, )+ X.shape)
     # Initialize adversarial samples as the original samples, set upper and
     # lower bounds
     X_adv = X
@@ -239,14 +242,21 @@ def basic_iterative_method(sess, model, X, Y, eps, eps_iter, nb_iter=50,
             args={'batch_size': batch_size}
         )
         X_adv = np.maximum(np.minimum(X_adv, X_max), X_min)
-        results[i] = X_adv
+        if keep_history:
+            results[i] = X_adv
         # check misclassifieds
         predictions = model.predict_classes(X_adv, batch_size=512, verbose=0)
         misclassifieds = np.where(predictions != Y.argmax(axis=1))[0]
         for elt in misclassifieds:
             if elt not in out:
+                if not keep_history:
+                    results[0, elt, ...] = X_adv[elt, ...]
                 its[elt] = i
                 out.add(elt)
+
+        if len(out) >= len(X):
+            print('fully confused.')
+            break
 
     return its, results
 

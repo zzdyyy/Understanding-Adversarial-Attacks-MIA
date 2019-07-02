@@ -8,7 +8,7 @@ from sklearn.preprocessing import scale, MinMaxScaler, StandardScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score
 from util import (random_split, block_split, train_lr, compute_roc)
 
-DATASETS = ['mnist', 'cifar', 'svhn']
+DATASETS = ['mnist', 'cifar', 'svhn', 'dr', 'cxr', 'derm']
 ATTACKS = ['fgsm', 'bim-a', 'bim-b', 'jsma', 'cw-l2']
 CHARACTERISTICS = ['kd', 'bu', 'lid']
 PATH_DATA = "data/"

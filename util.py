@@ -16,7 +16,8 @@ import keras.backend as K
 from keras.datasets import mnist, cifar10
 from keras.utils import np_utils
 from keras.models import Sequential
-from keras.layers import Dense, Dropout, Activation, Flatten
+import keras
+from keras.layers import Dense, Dropout, Activation, Flatten, BatchNormalization
 from keras.layers import Conv2D, MaxPooling2D
 from keras.regularizers import l2
 import tensorflow as tf
@@ -41,13 +42,14 @@ from sklearn.decomposition import PCA
 STDEVS = {
     'mnist': {'fgsm': 0.271, 'bim-a': 0.111, 'bim-b': 0.167, 'cw-l2': 0.207},
     'cifar': {'fgsm': 0.0504, 'bim-a': 0.0084, 'bim-b': 0.0428, 'cw-l2': 0.007},
-    'svhn': {'fgsm': 0.133, 'bim-a': 0.0155, 'bim-b': 0.095, 'cw-l2': 0.008}
+    'svhn': {'fgsm': 0.133, 'bim-a': 0.0155, 'bim-b': 0.095, 'cw-l2': 0.008},
+    'dr': {'fgsm': 0.0157, 'bim-a': 0.00176, 'bim-b': np.nan, 'cw-l2': np.nan},
+    'cxr': {'fgsm': 0.0235, 'bim-a': 0.00314, 'bim-b': np.nan, 'cw-l2': np.nan},
+    'derm': {'fgsm': 0.0149, 'bim-a': 0.00242, 'bim-b': np.nan, 'cw-l2': np.nan},
 }
 
-# CLIP_MIN = 0.0
-# CLIP_MAX = 1.0
-CLIP_MIN = -0.5
-CLIP_MAX = 0.5
+CLIP_MIN = {'mnist': -0.5, 'cifar': -0.5, 'svhn': -0.5, 'dr': -1.0, 'cxr': -1.0, 'derm': -1.0}
+CLIP_MAX = {'mnist':  0.5, 'cifar':  0.5, 'svhn':  0.5, 'dr':  1.0, 'cxr':  1.0, 'derm':  1.0}
 PATH_DATA = "data/"
 
 # Set random seed
@@ -61,8 +63,26 @@ def get_data(dataset='mnist'):
     :param dataset:
     :return: 
     """
-    assert dataset in ['mnist', 'cifar', 'svhn'], \
-        "dataset parameter must be either 'mnist' 'cifar' or 'svhn'"
+    assert dataset in ['mnist', 'cifar', 'svhn', 'dr', 'cxr', 'derm'], \
+        "dataset parameter must be either 'mnist', 'cifar', 'svhn', 'dr', 'cxr', or 'derm'"
+    if dataset in ['dr', 'cxr', 'derm']:
+        # X_test = np.load('data/%s/test_x.npy' % dataset).astype('float32')
+        X_test = np.load('adversarial_medicine/numpy_to_share/%s/val_test_x.npy' % dataset).astype('float32')
+        keras.applications.inception_resnet_v2.preprocess_input(X_test)  # transform value range to [-1, 1] TODO: not compatiable with other datasets (range [0,1])
+        # Y_test = np.load('data/%s/test_y.npy' % dataset)
+        Y_test = np.load('adversarial_medicine/numpy_to_share/%s/val_test_y.npy' % dataset)
+        # X_test = X_test[:5000]
+        # Y_test = Y_test[:5000]
+        X_train = X_test[:0, ...]  # not used for now
+        Y_train = Y_test[:0, ...]
+
+        print("X_train:", X_train.shape)
+        print("Y_train:", Y_train.shape)
+        print("X_test:", X_test.shape)
+        print("Y_test", Y_test.shape)
+
+        return X_train, Y_train, X_test, Y_test
+
     if dataset == 'mnist':
         # the data, shuffled and split between train and test sets
         (X_train, y_train), (X_test, y_test) = mnist.load_data()
@@ -96,11 +116,11 @@ def get_data(dataset='mnist'):
         y_train = np.reshape(train['y'], (-1,)) - 1
         y_test = np.reshape(test['y'], (-1,)) - 1
 
-    # cast pixels to floats, normalize to [0, 1] range
+    # cast pixels to floats, normalize to [CLIP_min, CLIP_MAX] range
     X_train = X_train.astype('float32')
     X_test = X_test.astype('float32')
-    X_train = (X_train/255.0) - (1.0 - CLIP_MAX)
-    X_test = (X_test/255.0) - (1.0 - CLIP_MAX)
+    X_train = (X_train/255.0) - (1.0 - CLIP_MAX[dataset])
+    X_test = (X_test/255.0) - (1.0 - CLIP_MAX[dataset])
 
     # one-hot-encode the labels
     Y_train = np_utils.to_categorical(y_train, 10)
@@ -122,8 +142,10 @@ def get_model(dataset='mnist', softmax=True):
     :param softmax: if add softmax to the last layer.
     :return: The model; a Keras 'Sequential' instance.
     """
-    assert dataset in ['mnist', 'cifar', 'svhn'], \
-        "dataset parameter must be either 'mnist' 'cifar' or 'svhn'"
+    assert dataset in ['mnist', 'cifar', 'svhn', 'dr', 'cxr', 'derm'], \
+        "dataset parameter must be either 'mnist', 'cifar', 'svhn', 'dr', 'cxr', or 'derm'"
+    if dataset in ['dr', 'cxr', 'derm']:
+        return keras.models.load_model(os.path.join(PATH_DATA, "model_%s.h5" % dataset))  # TODO: optinal softmax not implemented
     if dataset == 'mnist':
         # MNIST model: 0, 2, 7, 10
         layers = [
@@ -284,7 +306,7 @@ def lid_adv_term(clean_logits, adv_logits, batch_size=100):
 
     return lids
 
-def flip(x, nb_diff):
+def flip(x, nb_diff, clip_max):
     """
     Helper function for get_noisy_samples
     :param x:
@@ -293,10 +315,10 @@ def flip(x, nb_diff):
     """
     original_shape = x.shape
     x = np.copy(np.reshape(x, (-1,)))
-    candidate_inds = np.where(x < CLIP_MAX)[0]
+    candidate_inds = np.where(x < clip_max)[0]
     assert candidate_inds.shape[0] >= nb_diff
     inds = np.random.choice(candidate_inds, nb_diff)
-    x[inds] = CLIP_MAX
+    x[inds] = clip_max
 
     return np.reshape(x, original_shape)
 
@@ -317,7 +339,7 @@ def get_noisy_samples(X_test, X_test_adv, dataset, attack):
             nb_diff = len(np.where(X_test[i] != X_test_adv[i])[0])
             # Randomly flip an equal number of pixels (flip means move to max
             # value of 1)
-            X_test_noisy[i] = flip(X_test[i], nb_diff)
+            X_test_noisy[i] = flip(X_test[i], nb_diff, CLIP_MAX[dataset])
     else:
         warnings.warn("Important: using pre-set Gaussian scale sizes to craft noisy "
                       "samples. You will definitely need to manually tune the scale "
@@ -331,9 +353,9 @@ def get_noisy_samples(X_test, X_test_adv, dataset, attack):
             np.maximum(
                 X_test + np.random.normal(loc=0, scale=STDEVS[dataset][attack],
                                           size=X_test.shape),
-                CLIP_MIN
+                CLIP_MIN[dataset]
             ),
-            CLIP_MAX
+            CLIP_MAX[dataset]
         )
 
     return X_test_noisy
@@ -369,7 +391,7 @@ def get_mc_predictions(model, X, nb_iter=50, batch_size=256):
     return np.asarray(preds_mc)
 
 
-def get_deep_representations(model, X, batch_size=256):
+def get_deep_representations(model, X, index=-4, batch_size=256):
     """
     TODO
     :param model:
@@ -377,11 +399,11 @@ def get_deep_representations(model, X, batch_size=256):
     :param batch_size:
     :return:
     """
-    # last hidden layer is always at index -4
-    output_dim = model.layers[-4].output.shape[-1].value
+    # last hidden layer is always at index 'index'
+    output_dim = model.layers[index].output.shape[-1].value
     get_encoding = K.function(
         [model.layers[0].input, K.learning_phase()],
-        [model.layers[-4].output]
+        [model.layers[index].output]
     )
 
     n_batches = int(np.ceil(X.shape[0] / float(batch_size)))
@@ -399,9 +421,12 @@ def get_layer_wise_activations(model, dataset):
     :param dataset: 'mnist', 'cifar', 'svhn', has different submanifolds architectures  
     :return: 
     """
-    assert dataset in ['mnist', 'cifar', 'svhn'], \
+    assert dataset in ['mnist', 'cifar', 'svhn', 'dr', 'cxr', 'derm'], \
         "dataset parameter must be either 'mnist' 'cifar' or 'svhn'"
-    if dataset == 'mnist':
+
+    if dataset in ['dr', 'cxr', 'derm']:
+        acts = [model.layers[-1].input]
+    elif dataset == 'mnist':
         # mnist model
         acts = [model.layers[0].input]
         acts.extend([layer.output for layer in model.layers])
