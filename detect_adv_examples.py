@@ -7,25 +7,26 @@ import numpy as np
 from sklearn.preprocessing import scale, MinMaxScaler, StandardScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score
 from util import (random_split, block_split, train_lr, compute_roc)
+from sklearn.metrics import roc_curve, auc, roc_auc_score
 
-DATASETS = ['mnist', 'cifar', 'svhn', 'dr', 'cxr', 'derm']
+DATASETS = ['mnist', 'cifar-10', 'svhn', 'dr', 'cxr', 'derm']
 ATTACKS = ['fgsm', 'bim-a', 'bim-b', 'jsma', 'cw-l2']
 CHARACTERISTICS = ['kd', 'bu', 'lid']
 PATH_DATA = "data/"
 PATH_IMAGES = "plots/"
 
-def load_characteristics(dataset, attack, characteristics):
+def load_characteristics(dataset, attack, characteristics, k, q):
     """
     Load multiple characteristics for one dataset and one attack.
-    :param dataset: 
-    :param attack: 
-    :param characteristics: 
-    :return: 
+    k/q are for LIDq estimation, different setttings
     """
     X, Y = None, None
-    for characteristic in characteristics:
+    for ch in characteristics:
         # print("  -- %s" % characteristics)
-        file_name = os.path.join(PATH_DATA, "%s_%s_%s.npy" % (characteristic, dataset, attack))
+        if ch == 'lid':
+            file_name = os.path.join(PATH_DATA, "%s_%s_%s_%s_%s.npy" % (ch, dataset, attack, k, q))
+        else:
+            file_name = os.path.join(PATH_DATA, "%s_%s_%s.npy" % (ch, dataset, attack))
         data = np.load(file_name)
         if X is None:
             X = data[:, :-1]
@@ -37,21 +38,9 @@ def load_characteristics(dataset, attack, characteristics):
     return X, Y
 
 def detect(args):
-    assert args.dataset in DATASETS, \
-        "Dataset parameter must be either 'mnist', 'cifar' or 'svhn'"
-    assert args.attack in ATTACKS, \
-        "Train attack must be either 'fgsm', 'bim-a', 'bim-b', " \
-        "'jsma', 'cw-l2'"
-    assert args.test_attack in ATTACKS, \
-        "Test attack must be either 'fgsm', 'bim-a', 'bim-b', " \
-        "'jsma', 'cw-l2'"
-    characteristics = args.characteristics.split(',')
-    for char in characteristics:
-        assert char in CHARACTERISTICS, \
-            "Characteristic(s) to use 'kd', 'bu', 'lid'"
-
+    chars = args.characteristics.split(',')
     print("Loading train attack: %s" % args.attack)
-    X, Y = load_characteristics(args.dataset, args.attack, characteristics)
+    X, Y = load_characteristics(args.dataset, args.attack, chars, args.lid_k, args.lid_q)
 
     # standarization
     scaler = MinMaxScaler().fit(X)
@@ -63,7 +52,7 @@ def detect(args):
     if args.test_attack != args.attack:
         # test attack is a different attack
         print("Loading test attack: %s" % args.test_attack)
-        X_test, Y_test = load_characteristics(args.dataset, args.test_attack, characteristics)
+        X_test, Y_test = load_characteristics(args.dataset, args.test_attack, chars, args.lid_k, args.lid_q)
         _, _, X_test, Y_test = block_split(X_test, Y_test)
 
         # apply training normalizer
@@ -83,14 +72,19 @@ def detect(args):
     y_pred = lr.predict_proba(X_test)[:, 1]
     y_label_pred = lr.predict(X_test)
     
-    # AUC
-    _, _, auc_score = compute_roc(Y_test, y_pred, plot=False)
+    # compute scores
+    # fpr, tpr, _ = roc_curve(Y_test, y_pred)
+    auc_score = roc_auc_score(Y_test, y_pred)
     precision = precision_score(Y_test, y_label_pred)
     recall = recall_score(Y_test, y_label_pred)
 
     y_label_pred = lr.predict(X_test)
     acc = accuracy_score(Y_test, y_label_pred)
-    print('Detector ROC-AUC score: %0.4f, accuracy: %.4f, precision: %.4f, recall: %.4f' % (auc_score, acc, precision, recall))
+    print('=================')
+    print('k=%s, q=%s' % (args.lid_k, args.lid_q))
+    print('Detector ROC-AUC score: %0.4f, accuracy: %.4f, precision: %.4f, recall: %.4f' %
+          (auc_score, acc, precision, recall))
+    print('=================')
 
     return lr, auc_score, scaler
 
@@ -98,7 +92,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-d', '--dataset',
-        help="Dataset to use; either 'mnist', 'cifar' or 'svhn'",
+        help="Dataset to use; either 'mnist', 'cifar-10' or 'svhn'",
         required=True, type=str
     )
     parser.add_argument(

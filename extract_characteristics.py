@@ -7,19 +7,20 @@ import warnings
 import numpy as np
 from sklearn.neighbors import KernelDensity
 from keras.models import load_model
-
-from util import (get_data, get_noisy_samples, get_mc_predictions,
-                      get_deep_representations, score_samples, normalize,
+import keras.backend as K
+from util import (get_mc_predictions, get_deep_representations, score_samples, normalize,
                       get_lids_random_batch, get_kmeans_random_batch)
+from datasets import get_data, get_noisy_samples
+from models import get_model
 
 # In the original paper, the author used optimal KDE bandwidths dataset-wise
 #  that were determined from CV tuning
-BANDWIDTHS = {'mnist': 3.7926, 'cifar': 0.26, 'svhn': 1.00, 'dr':1.00, 'cxr':1.00, 'derm':1.00}
+BANDWIDTHS = {'mnist': 3.7926, 'cifar-10': 0.26, 'svhn': 1.00, 'dr':1.00, 'cxr':1.00, 'derm':1.00}
 
-# Here we further tune bandwidth for each of the 10 classes in mnist, cifar and svhn
+# Here we further tune bandwidth for each of the 10 classes in mnist, cifar-10 and svhn
 # Run tune_kernal_density.py to get the following settings.
 # BANDWIDTHS = {'mnist': [0.2637, 0.1274, 0.2637, 0.2637, 0.2637, 0.2637, 0.2637, 0.2069, 0.3360, 0.2637],
-#               'cifar': [0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000],
+#               'cifar-10': [0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000],
 #               'svhn': [0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1274, 0.1000, 0.1000]}
 
 PATH_DATA = "data/"
@@ -170,7 +171,7 @@ def get_bu(model, X_test, X_test_noisy, X_test_adv):
 
     return artifacts, labels
 
-def get_lid(model, X_test, X_test_noisy, X_test_adv, k=10, batch_size=100, dataset='mnist'):
+def get_lid(model, X_test, X_test_noisy, X_test_adv, k=10, q=1.0, batch_size=100, dataset='mnist'):
     """
     Get local intrinsic dimensionality
     :param model: 
@@ -184,7 +185,8 @@ def get_lid(model, X_test, X_test_noisy, X_test_adv, k=10, batch_size=100, datas
     """
     print('Extract local intrinsic dimensionality: k = %s' % k)
     lids_normal, lids_noisy, lids_adv = get_lids_random_batch(model, X_test, X_test_noisy,
-                                                              X_test_adv, dataset, k, batch_size)
+                                                              X_test_adv, dataset, k=k, q=q,
+                                                              batch_size=batch_size)
     print("lids_normal:", lids_normal.shape)
     print("lids_noisy:", lids_noisy.shape)
     print("lids_adv:", lids_adv.shape)
@@ -239,32 +241,43 @@ def get_kmeans(model, X_test, X_test_noisy, X_test_adv, k=10, batch_size=100, da
     return artifacts, labels
 
 def main(args):
-    assert args.dataset in ['mnist', 'cifar', 'svhn', 'dr', 'cxr', 'derm'], \
-        "Dataset parameter must be either 'mnist', 'cifar' or 'svhn'"
-    assert args.attack in ['fgsm', 'bim-a', 'bim-b', 'jsma', 'cw-l2', 'all'], \
-        "Attack parameter must be either 'fgsm', 'bim-a', 'bim-b', " \
-        "'jsma' or 'cw-l2'"
+    assert args.dataset in ['mnist', 'cifar-10', 'svhn', 'dr', 'cxr', 'derm'], \
+        "Dataset parameter must be either 'mnist', 'cifar-10' or 'svhn', 'dr', 'cxr', 'derm'"
+    assert args.attack in ['fgsm', 'bim', 'jsma', 'deepfool', 'pgd', 'ead', 'cw-l2', 'cw-lid'], \
+        "Attack parameter must be either 'fgsm', 'bim', 'jsma', 'deepfool', " \
+        "'pgd', 'ead', 'cw-l2', 'cw-lid'"
     assert args.characteristic in ['kd', 'bu', 'lid', 'km', 'all'], \
         "Characteristic(s) to use 'kd', 'bu', 'lid', 'km', 'all'"
-    model_file = os.path.join(PATH_DATA, "model_%s.h5" % args.dataset)
-    assert os.path.isfile(model_file), \
-        'model file not found... must first train model using train_model.py.'
-    adv_file = os.path.join(PATH_DATA, "Adv_%s_%s.npy" % (args.dataset, args.attack))
+
+
+    weights_file = "model/model_%s.h5" % args.dataset
+    assert os.path.isfile(weights_file), \
+        'model weights not found... must first train model using train_model.py.'
+
+    if args.attack in ['cw-l2', 'cw-li', 'cw-lid']:
+        adv_file = "data/Adv_%s_%s_%s.npy" % (args.dataset, args.attack, args.confidence)
+    else:
+        adv_file = "data/Adv_%s_%s.npy" % (args.dataset, args.attack)
     assert os.path.isfile(adv_file), \
-        'adversarial sample file not found... must first craft adversarial ' \
-        'samples using craft_adv_samples.py'
+            'adversarial sample file not found... must first craft adversarial ' \
+            'samples using craft_adv_samples.py'
 
     print('Loading the data and model...')
-    # Load the model
-    model = load_model(model_file)
-
-    if args.dataset in ['dr', 'cxr', 'derm']:
-        def predict_classes(x, batch_size=32, verbose=0):
-            return model.predict(x, batch_size=batch_size, verbose=verbose).argmax(axis=-1)
-        model.predict_classes = predict_classes
-
-    # Load the dataset
+    # Load data
     X_train, Y_train, X_test, Y_test = get_data(args.dataset)
+    n_images = X_test.shape[0]
+    image_shape = X_test.shape[1:]
+    n_class = Y_test.shape[1]
+
+    # laod model
+    model = get_model(args.dataset, softmax=True)
+    model.load_weights(weights_file)
+    model.compile(
+        loss='categorical_crossentropy',
+        optimizer='sgd',
+        metrics=['accuracy']
+    )
+
     # Check attack type, select adversarial and noisy samples accordingly
     print('Loading noisy and adversarial samples...')
     if args.attack == 'all':
@@ -279,7 +292,7 @@ def main(args):
 
         # as there are some parameters to tune for noisy example, so put the generation
         # step here instead of the adversarial step which can take many hours
-        noisy_file = os.path.join(PATH_DATA, 'Noisy_%s_%s.npy' % (args.dataset, args.attack))
+        noisy_file = 'data/Noisy_%s_%s.npy' % (args.dataset, args.attack)
         if os.path.isfile(noisy_file):
             X_test_noisy = np.load(noisy_file)
         else:
@@ -307,9 +320,8 @@ def main(args):
 
     # Refine the normal, noisy and adversarial sets to only include samples for
     # which the original version was correctly classified by the model
-    preds_test = model.predict_classes(X_test, verbose=0,
-                                       batch_size=args.batch_size)
-    inds_correct = np.where(preds_test == Y_test.argmax(axis=1))[0]
+    preds_test = model.predict(X_test, batch_size=args.batch_size)
+    inds_correct = np.where(preds_test.argmax(axis=1) == Y_test.argmax(axis=1))[0]
     print("Number of correctly predict images: %s" % (len(inds_correct)))
 
     X_test = X_test[inds_correct]
@@ -326,7 +338,7 @@ def main(args):
 
         # save to file
         bandwidth = BANDWIDTHS[args.dataset]
-        file_name = os.path.join(PATH_DATA, 'kd_%s_%s_%.4f.npy' % (args.dataset, args.attack, bandwidth))
+        file_name = 'data/kd_%s_%s_%.4f.npy' % (args.dataset, args.attack, bandwidth)
         data = np.concatenate((characteristics, labels), axis=1)
         np.save(file_name, data)
     elif args.characteristic == 'bu':
@@ -335,56 +347,56 @@ def main(args):
         print("BU: [characteristic shape: ", characteristics.shape, ", label shape: ", labels.shape)
 
         # save to file
-        file_name = os.path.join(PATH_DATA, 'bu_%s_%s.npy' % (args.dataset, args.attack))
+        file_name = 'data/bu_%s_%s.npy' % (args.dataset, args.attack)
         data = np.concatenate((characteristics, labels), axis=1)
         np.save(file_name, data)
     elif args.characteristic == 'lid':
         # extract local intrinsic dimensionality
-        characteristics, labels = get_lid(model, X_test, X_test_noisy, X_test_adv,
-                                    args.k_nearest, args.batch_size, args.dataset)
+        characteristics, labels = get_lid(model, X_test, X_test_noisy, X_test_adv, args.lid_k,
+                                          args.lid_q, args.batch_size, args.dataset)
         print("LID: [characteristic shape: ", characteristics.shape, ", label shape: ", labels.shape)
 
         # save to file
-        # file_name = os.path.join(PATH_DATA, 'lid_%s_%s.npy' % (args.dataset, args.attack))
-        file_name = os.path.join('data/', 'lid_%s_%s_%s.npy' %
-                                 (args.dataset, args.attack, args.k_nearest))
+        file_name = 'data/lid_%s_%s_%s_%s.npy' % (args.dataset, args.attack, args.lid_k, args.lid_q)
+        # file_name = os.path.join('data_grid_search/lid_large_batch/', 'lid_%s_%s_%s.npy' %
+        #                          (args.dataset, args.attack, args.k_nearest))
 
         data = np.concatenate((characteristics, labels), axis=1)
         np.save(file_name, data)
     elif args.characteristic == 'km':
         # extract k means distance
         characteristics, labels = get_kmeans(model, X_test, X_test_noisy, X_test_adv,
-                                    args.k_nearest, args.batch_size, args.dataset)
+                                    args.lid_k, args.batch_size, args.dataset)
         print("K-Mean: [characteristic shape: ", characteristics.shape, ", label shape: ", labels.shape)
 
         # save to file
-        file_name = os.path.join(PATH_DATA, 'km_pca_%s_%s.npy' % (args.dataset, args.attack))
+        file_name = 'data/km_pca_%s_%s.npy' % (args.dataset, args.attack)
         data = np.concatenate((characteristics, labels), axis=1)
         np.save(file_name, data)
     elif args.characteristic == 'all':
         # extract kernel density
         characteristics, labels = get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv, args.dataset)
-        file_name = os.path.join(PATH_DATA, 'kd_%s_%s.npy' % (args.dataset, args.attack))
+        file_name = 'data/kd_%s_%s.npy' % (args.dataset, args.attack)
         data = np.concatenate((characteristics, labels), axis=1)
         np.save(file_name, data)
 
         # extract Bayesian uncertainty
         characteristics, labels = get_bu(model, X_test, X_test_noisy, X_test_adv)
-        file_name = os.path.join(PATH_DATA, 'bu_%s_%s.npy' % (args.dataset, args.attack))
+        file_name = 'data/bu_%s_%s.npy' % (args.dataset, args.attack)
         data = np.concatenate((characteristics, labels), axis=1)
         np.save(file_name, data)
 
         # extract local intrinsic dimensionality
-        characteristics, labels = get_lid(model, X_test, X_test_noisy, X_test_adv,
-                                    args.k_nearest, args.batch_size, args.dataset)
-        file_name = os.path.join(PATH_DATA, 'lid_%s_%s.npy' % (args.dataset, args.attack))
+        characteristics, labels = get_lid(model, X_test, X_test_noisy, X_test_adv, args.lid_k,
+                                          args.lid_q, args.batch_size, args.dataset)
+        file_name = 'data/lid_%s_%s_%s_%s.npy' % (args.dataset, args.attack, args.lid_k, args.lid_q)
         data = np.concatenate((characteristics, labels), axis=1)
         np.save(file_name, data)
 
         # extract k means distance
         # artifcharacteristics, labels = get_kmeans(model, X_test, X_test_noisy, X_test_adv,
         #                                args.k_nearest, args.batch_size, args.dataset)
-        # file_name = os.path.join(PATH_DATA, 'km_%s_%s.npy' % (args.dataset, args.attack))
+        # file_name = 'data/km_%s_%s.npy' % (args.dataset, args.attack)
         # data = np.concatenate((characteristics, labels), axis=1)
         # np.save(file_name, data)
 
@@ -393,13 +405,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-d', '--dataset',
-        help="Dataset to use; either 'mnist', 'cifar' or 'svhn'",
+        help="Dataset to use; either 'mnist', 'cifar-10' or 'svhn'",
         required=True, type=str
     )
     parser.add_argument(
         '-a', '--attack',
-        help="Attack to use; either 'fgsm', 'jsma', 'bim-b', 'jsma', 'cw-l2' "
-             "or 'all'",
+        help="Attack to use; either 'fgsm', 'bim', 'jsma', "
+             "'deepfool', 'pgd', 'ead', 'cw-l2', 'cw-lid' ",
         required=True, type=str
     )
     parser.add_argument(
@@ -408,16 +420,44 @@ if __name__ == "__main__":
         required=True, type=str
     )
     parser.add_argument(
-        '-k', '--k_nearest',
+        '-k', '--lid_k',
         help="The number of nearest neighbours to use; either 10, 20, 100 ",
         required=False, type=int
+    )
+    parser.add_argument(
+        '-q', '--lid_q',
+        help="The q parameter for LIDq estimation ",
+        required=False, type=float
     )
     parser.add_argument(
         '-b', '--batch_size',
         help="The batch size to use for training.",
         required=False, type=int
     )
+    parser.add_argument(
+        '-c', '--confidence',
+        help="The confidence of the attack.",
+        required=False, type=int
+    )
     parser.set_defaults(batch_size=100)
-    parser.set_defaults(k_nearest=20)
+    parser.set_defaults(lid_k=20)
+    parser.set_defaults(lid_q=1.0)
+    parser.set_defaults(confidence=0)
     args = parser.parse_args()
     main(args)
+
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+    #
+    # for k in [8, 10, 20]:
+    #     for q in [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]:
+    #         args = parser.parse_args(['-d', 'derm', '-a', 'fgsm', '-r', 'lid',
+    #                                   '-k', str(k), '-q', str(q), '-b', '100'])
+    #         main(args)
+    # for k in [10, 20, 30, 40, 50, 60, 70, 80, 90]:
+    #     for q in [0]:
+    #         args = parser.parse_args(['-d', 'cifar-10', '-a', 'fgsm', '-r', 'lid',
+    #                                   '-k', str(k), '-q', str(q), '-b', '100'])
+    #         main(args)
+
+    K.clear_session()
+

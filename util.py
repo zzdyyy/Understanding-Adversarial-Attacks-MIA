@@ -1,251 +1,274 @@
 from __future__ import absolute_import
 from __future__ import print_function
 
-import os
 import multiprocessing as mp
-from subprocess import call
 import warnings
 import numpy as np
-import scipy.io as sio
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, auc, roc_auc_score
 from sklearn.linear_model import LogisticRegressionCV
 from sklearn.preprocessing import scale
 import keras.backend as K
-from keras.datasets import mnist, cifar10
-from keras.utils import np_utils
-from keras.models import Sequential
-import keras
-from keras.layers import Dense, Dropout, Activation, Flatten, BatchNormalization
-from keras.layers import Conv2D, MaxPooling2D
-from keras.regularizers import l2
 import tensorflow as tf
 from scipy.spatial.distance import pdist, cdist, squareform
-from keras import regularizers
 from sklearn.decomposition import PCA
+from scipy.optimize import minimize
 
-# Gaussian noise scale sizes that were determined so that the average
-# L-2 perturbation size is equal to that of the adversarial samples
-# mnist roughly L2_difference/20
-# cifar roughly L2_difference/54
-# svhn roughly L2_difference/60
-# be very carefully with these settings, tune to have noisy/adv have the same L2-norm
-# otherwise artifact will lose its accuracy
-# STDEVS = {
-#     'mnist': {'fgsm': 0.264, 'bim-a': 0.111, 'bim-b': 0.184, 'cw-l2': 0.588},
-#     'cifar': {'fgsm': 0.0504, 'bim-a': 0.0087, 'bim-b': 0.0439, 'cw-l2': 0.015},
-#     'svhn': {'fgsm': 0.1332, 'bim-a': 0.015, 'bim-b': 0.1024, 'cw-l2': 0.0379}
-# }
-
-# fined tuned again when retrained all models with X in [-0.5, 0.5]
-STDEVS = {
-    'mnist': {'fgsm': 0.271, 'bim-a': 0.111, 'bim-b': 0.167, 'cw-l2': 0.207},
-    'cifar': {'fgsm': 0.0504, 'bim-a': 0.0084, 'bim-b': 0.0428, 'cw-l2': 0.007},
-    'svhn': {'fgsm': 0.133, 'bim-a': 0.0155, 'bim-b': 0.095, 'cw-l2': 0.008},
-    'dr': {'fgsm': 0.0157, 'bim-a': 0.00176, 'bim-b': np.nan, 'cw-l2': np.nan},
-    'cxr': {'fgsm': 0.0235, 'bim-a': 0.00314, 'bim-b': np.nan, 'cw-l2': np.nan},
-    'derm': {'fgsm': 0.0149, 'bim-a': 0.00242, 'bim-b': np.nan, 'cw-l2': np.nan},
-}
-
-CLIP_MIN = {'mnist': -0.5, 'cifar': -0.5, 'svhn': -0.5, 'dr': -1.0, 'cxr': -1.0, 'derm': -1.0}
-CLIP_MAX = {'mnist':  0.5, 'cifar':  0.5, 'svhn':  0.5, 'dr':  1.0, 'cxr':  1.0, 'derm':  1.0}
-PATH_DATA = "data/"
-
-# Set random seed
-np.random.seed(0)
-
-
-def get_data(dataset='mnist'):
+def lid_tle(XA, XB, k):
     """
-    images in [-0.5, 0.5] (instead of [0, 1]) which suits C&W attack and generally gives better performance
-    
-    :param dataset:
-    :return: 
+    new Tight LID estimator: esstimate lid values for each sample in XA w.r.t. neighbors in XB.
+    Paper: Intrinsic Dimensionality Estimation within Tight Localities∗ Laurent
+    Link: https://epubs.siam.org/doi/pdf/10.1137/1.9781611975673.21
+    :param XA: for which lid is estimated
+    :param XB: neighbor candidate set
+    :param k:
+    :return:
     """
-    assert dataset in ['mnist', 'cifar', 'svhn', 'dr', 'cxr', 'derm'], \
-        "dataset parameter must be either 'mnist', 'cifar', 'svhn', 'dr', 'cxr', or 'derm'"
-    if dataset in ['dr', 'cxr', 'derm']:
-        # X_test = np.load('data/%s/test_x.npy' % dataset).astype('float32')
-        X_test = np.load('adversarial_medicine/numpy_to_share/%s/val_test_x.npy' % dataset).astype('float32')
-        keras.applications.inception_resnet_v2.preprocess_input(X_test)  # transform value range to [-1, 1] TODO: not compatiable with other datasets (range [0,1])
-        # Y_test = np.load('data/%s/test_y.npy' % dataset)
-        Y_test = np.load('adversarial_medicine/numpy_to_share/%s/val_test_y.npy' % dataset)
-        # X_test = X_test[:5000]
-        # Y_test = Y_test[:5000]
-        X_train = X_test[:0, ...]  # not used for now
-        Y_train = Y_test[:0, ...]
+    epsilon = 0.0001
+    XB = np.asarray(XB, dtype=np.float32)
+    XA = np.asarray(XA, dtype=np.float32)
 
-        print("X_train:", X_train.shape)
-        print("Y_train:", Y_train.shape)
-        print("X_test:", X_test.shape)
-        print("Y_test", Y_test.shape)
+    if XB.ndim == 1:
+        XB = XA.reshape((-1, XB.shape[0]))
+    if XA.ndim == 1:
+        XA = XA.reshape((-1, XA.shape[0]))
 
-        return X_train, Y_train, X_test, Y_test
+    k = min(k, XB.shape[0]-1)
+    f = lambda v: v/v[-1]
+    D = cdist(XA, XB)
 
-    if dataset == 'mnist':
-        # the data, shuffled and split between train and test sets
-        (X_train, y_train), (X_test, y_test) = mnist.load_data()
-        # reshape to (n_samples, 28, 28, 1)
-        X_train = X_train.reshape(-1, 28, 28, 1)
-        X_test = X_test.reshape(-1, 28, 28, 1)
-    elif dataset == 'cifar':
-        # the data, shuffled and split between train and test sets
-        (X_train, y_train), (X_test, y_test) = cifar10.load_data()
-    else:
-        if not os.path.isfile(os.path.join(PATH_DATA, "svhn_train.mat")):
-            print('Downloading SVHN train set...')
-            call(
-                "curl -o ../data/svhn_train.mat "
-                "http://ufldl.stanford.edu/housenumbers/train_32x32.mat",
-                shell=True
-            )
-        if not os.path.isfile(os.path.join(PATH_DATA, "svhn_test.mat")):
-            print('Downloading SVHN test set...')
-            call(
-                "curl -o ../data/svhn_test.mat "
-                "http://ufldl.stanford.edu/housenumbers/test_32x32.mat",
-                shell=True
-            )
-        train = sio.loadmat(os.path.join(PATH_DATA,'svhn_train.mat'))
-        test = sio.loadmat(os.path.join(PATH_DATA, 'svhn_test.mat'))
-        X_train = np.transpose(train['X'], axes=[3, 0, 1, 2])
-        X_test = np.transpose(test['X'], axes=[3, 0, 1, 2])
-        # reshape (n_samples, 1) to (n_samples,) and change 1-index
-        # to 0-index
-        y_train = np.reshape(train['y'], (-1,)) - 1
-        y_test = np.reshape(test['y'], (-1,)) - 1
+    lids = np.zeros(XA.shape[0])
 
-    # cast pixels to floats, normalize to [CLIP_min, CLIP_MAX] range
-    X_train = X_train.astype('float32')
-    X_test = X_test.astype('float32')
-    X_train = (X_train/255.0) - (1.0 - CLIP_MAX[dataset])
-    X_test = (X_test/255.0) - (1.0 - CLIP_MAX[dataset])
+    for i in range(XA.shape[0]):
+        x = XA[i, None]
 
-    # one-hot-encode the labels
-    Y_train = np_utils.to_categorical(y_train, 10)
-    Y_test = np_utils.to_categorical(y_test, 10)
+        D = cdist(x, XB)
+        D = D[0]
+        '''
+        x = np.array([[1,1]])
+        XB = np.array([[1,1], [2,2], [3,3], [4,4], [5,5], [6,6]])
+        D = array([[0., 1.41421356, 2.82842712, 4.24264069, 5.65685425, 7.07106781]])
+        '''
+        idx = np.argsort(D)[1:k+1] # indexes for k-nearest neighbors in XB:
+        X = XB[idx] # k-nearest neighbor samples in XB
+        dists = D[idx] # k-nearest distances
+        r = dists[-1] # distance to k-th neighbor
+        k = len(dists) # number of nearest neighbors
+        '''
+        idx = array([1, 2, 3])
+        X = array([[2, 2], [3, 3], [4, 4]])
+        dists = array([1.41421356, 2.82842712, 4.24264069])
+        r = 4.242640687119285
+        k = 3
+        '''
 
-    print("X_train:", X_train.shape)
-    print("Y_train:", Y_train.shape)
-    print("X_test:", X_test.shape)
-    print("Y_test", Y_test.shape)
+        ## start TLE estimation process
+        V = squareform(pdist(X)) # symmetric matrix representation of: pairwise distances between neighbors
+        '''
+        V = array([[0.        , 1.41421356, 2.82842712],
+       [1.41421356, 0.        , 1.41421356],
+       [2.82842712, 1.41421356, 0.        ]])
+        '''
 
-    return X_train, Y_train, X_test, Y_test
+        Di = np.tile(dists.reshape((1, k)).T, (1, k))
+        '''
+        Di = array([[1.41421356, 1.41421356, 1.41421356],
+       [2.82842712, 2.82842712, 2.82842712],
+       [4.24264069, 4.24264069, 4.24264069]])
+        '''
+        Dj = Di.T
+        '''
+        Dj = array([[1.41421356, 2.82842712, 4.24264069],
+       [1.41421356, 2.82842712, 4.24264069],
+       [1.41421356, 2.82842712, 4.24264069]])
+        '''
+        Z2 = 2*Di**2 + 2*Dj**2 - V**2
+        '''
+        Z2 = array([[ 8., 18., 32.],
+       [18., 32., 50.],
+       [32., 50., 72.]])
+        '''
+        S = r * (((Di**2 + V**2 - Dj**2)**2 + 4*V**2 * (r**2 - Di**2))**0.5 - (Di**2 + V**2 - Dj**2)) / (2*(r**2 - Di**2) + 1e-12)
+        T = r * (((Di**2 + Z2   - Dj**2)**2 + 4*Z2   * (r**2 - Di**2))**0.5 - (Di**2 + Z2   - Dj**2)) / (2*(r**2 - Di**2) + 1e-12)
+        ''' 
+        S = array([[0.        , 2.12132034, 4.24264069],
+       [0.84852814, 0.        , 4.24264069],
+       [0.        , 0.        , 0.        ]])
+        T = array([[2.12132034, 3.18198052, 4.24264069],
+       [2.54558441, 3.39411255, 4.24264069],
+       [0.        , 0.        , 0.        ]])
+        '''
 
-def get_model(dataset='mnist', softmax=True):
-    """
-    Takes in a parameter indicating which model type to use ('mnist',
-    'cifar' or 'svhn') and returns the appropriate Keras model.
-    :param dataset: A string indicating which dataset we are building
-                    a model for.
-    :param softmax: if add softmax to the last layer.
-    :return: The model; a Keras 'Sequential' instance.
-    """
-    assert dataset in ['mnist', 'cifar', 'svhn', 'dr', 'cxr', 'derm'], \
-        "dataset parameter must be either 'mnist', 'cifar', 'svhn', 'dr', 'cxr', or 'derm'"
-    if dataset in ['dr', 'cxr', 'derm']:
-        return keras.models.load_model(os.path.join(PATH_DATA, "model_%s.h5" % dataset))  # TODO: optinal softmax not implemented
-    if dataset == 'mnist':
-        # MNIST model: 0, 2, 7, 10
-        layers = [
-            Conv2D(64, (3, 3), padding='valid', input_shape=(28, 28, 1)),  # 0
-            Activation('relu'),  # 1
-            BatchNormalization(), # 2
-            Conv2D(64, (3, 3)),  # 3
-            Activation('relu'),  # 4
-            BatchNormalization(), # 5
-            MaxPooling2D(pool_size=(2, 2)),  # 6
-            Dropout(0.5),  # 7
-            Flatten(),  # 8
-            Dense(128),  # 9            
-            Activation('relu'),  # 10
-            BatchNormalization(), # 11
-            Dropout(0.5),  # 12
-            Dense(10),  # 13
-        ]
-    elif dataset == 'cifar':
-        # CIFAR-10 model
-        layers = [
-            Conv2D(32, (3, 3), padding='same', input_shape=(32, 32, 3)),  # 0
-            Activation('relu'),  # 1
-            BatchNormalization(), # 2
-            Conv2D(32, (3, 3), padding='same'),  # 3
-            Activation('relu'),  # 4
-            BatchNormalization(), # 5
-            MaxPooling2D(pool_size=(2, 2)),  # 6
-            
-            Conv2D(64, (3, 3), padding='same'),  # 7
-            Activation('relu'),  # 8
-            BatchNormalization(), # 9
-            Conv2D(64, (3, 3), padding='same'),  # 10
-            Activation('relu'),  # 11
-            BatchNormalization(), # 12
-            MaxPooling2D(pool_size=(2, 2)),  # 13
-            
-            Conv2D(128, (3, 3), padding='same'),  # 14
-            Activation('relu'),  # 15
-            BatchNormalization(), # 16
-            Conv2D(128, (3, 3), padding='same'),  # 17
-            Activation('relu'),  # 18
-            BatchNormalization(), # 19
-            MaxPooling2D(pool_size=(2, 2)),  # 20
-            
-            Flatten(),  # 21
-            Dropout(0.5),  # 22
-            
-            Dense(1024, kernel_regularizer=l2(0.01), bias_regularizer=l2(0.01)),  # 23
-            Activation('relu'),  # 24
-            BatchNormalization(), # 25
-            Dropout(0.5),  # 26
-            Dense(512, kernel_regularizer=l2(0.01), bias_regularizer=l2(0.01)),  # 27
-            Activation('relu'),  # 28
-            BatchNormalization(), # 29
-            Dropout(0.5),  # 30
-            Dense(10),  # 31
-        ]
-    else:
-        # SVHN model
-        layers = [
-            Conv2D(64, (3, 3), padding='valid', input_shape=(32, 32, 3)),  # 0
-            Activation('relu'),  # 1
-            BatchNormalization(), # 2
-            Conv2D(64, (3, 3)),  # 3
-            Activation('relu'),  # 4
-            BatchNormalization(), # 5
-            MaxPooling2D(pool_size=(2, 2)),  # 6
-            
-            Dropout(0.5),  # 7
-            Flatten(),  # 8
-            
-            Dense(512),  # 9
-            Activation('relu'),  # 10
-            BatchNormalization(), # 11
-            Dropout(0.5),  # 12
-            
-            Dense(128),  # 13
-            Activation('relu'),  # 14
-            BatchNormalization(), # 15
-            Dropout(0.5),  # 16
-            Dense(10),  # 17
-        ]
+        Dr = dists == r # handle case 1: repeating k-NN distances
+        '''
+        Dr = array([[False, False,  True]])
+        '''
+        Dr = Dr[0] # add this extra step in python to reduce dimension
 
-    model = Sequential()
-    for layer in layers:
-        model.add(layer)
-    if softmax:
-        model.add(Activation('softmax'))
+        '''
+        Dr = array([False, False,  True])
+        '''
+        S[Dr, :] = r * V[Dr, :]**2 / (r**2 + V[Dr, :]**2 - Dj[Dr, :]**2 + 1e-12)
+        T[Dr, :] = r * Z2[Dr, :] / (r**2 + Z2[Dr, :] - Dj[Dr, :]**2 + 1e-12)
+        '''
+        S[Dr, :] = array([[1.41421356, 0.70710678, 0. ]])
+        T[Dr, :] = array([[2.82842712, 3.53553391, 4.24264069]])
+        '''
 
-    return model
+        ## Boundary case 2: If $u_i = 0$, then for all $1\leq j\leq k$ the measurements $s_{ij}$ and $t_{ij}$ reduce to $u_j$.
+        Di0 = Di == 0
+        '''
+        Di0 = array([[False, False, False],
+       [False, False, False],
+       [False, False, False]])
+        '''
+        T[Di0] = Dj[Di0]
+        S[Di0] = Dj[Di0]
+        '''
+        T = array([[2.12132034, 3.18198052, 4.24264069],
+       [2.54558441, 3.39411255, 4.24264069],
+       [2.82842712, 3.53553391, 4.24264069]])
+       S = array([[0.        , 2.12132034, 4.24264069],
+       [0.84852814, 0.        , 4.24264069],
+       [1.41421356, 0.70710678, 0.        ]])
+        '''
 
-def cross_entropy(y_true, y_pred):
-    return tf.nn.softmax_cross_entropy_with_logits(labels=y_true, logits=y_pred)
+        ## Boundary case 3: If $u_j = 0$, then for all $1\leq j\leq k$ the measurements $s_{ij}$ and $t_{ij}$ reduce to $\frac{r v_{ij}}{r + v_{ij}}$.
+        Dj0 = Dj == 0
+        T[Dj0] = r * V[Dj0] / (r + V[Dj0] + 1e-12)
+        S[Dj0] = r * V[Dj0] / (r + V[Dj0] + 1e-12)
+        '''
+        Dj0 = array([[False, False, False],
+       [False, False, False],
+       [False, False, False]])
+       T[Dj0] = array([[2.12132034, 3.18198052, 4.24264069],
+       [2.54558441, 3.39411255, 4.24264069],
+       [2.82842712, 3.53553391, 4.24264069]])
+       S[Dj0] = array([[0.        , 2.12132034, 4.24264069],
+       [0.84852814, 0.        , 4.24264069],
+       [1.41421356, 0.70710678, 0.        ]])
+        '''
+
+        ## Boundary case 4: If $v_{ij} = 0$, then the measurement $s_{ij}$ is zero and must be dropped. The measurement $t_{ij}$ should be dropped as well.
+        V0 = V == 0
+        '''
+        V0 = array([[ True, False, False],
+       [False,  True, False],
+       [False, False,  True]])
+        '''
+        V0[np.eye(k).astype(bool)] = 0
+        '''
+        V0 = array([[False, False, False],
+       [False, False, False],
+       [False, False, False]])
+       '''
+        T[V0] = r # by setting to r, $t_{ij}$ will not contribute to the sum s1t
+        S[V0] = r # by setting to r, $s_{ij}$ will not contribute to the sum s1s
+        '''
+        T = array([[2.12132034, 3.18198052, 4.24264069],
+       [2.54558441, 3.39411255, 4.24264069],
+       [2.82842712, 3.53553391, 4.24264069]])
+       S = array([[0.        , 2.12132034, 4.24264069],
+       [0.84852814, 0.        , 4.24264069],
+       [1.41421356, 0.70710678, 0.        ]])
+        '''
+        nV0 = np.sum(V0[:]) # will subtract twice this number during ID computation below
+        '''
+        nV0 = 0
+        '''
+        ## Drop T & S measurements below epsilon (V4: If $s_{ij}$ is thrown out, then for the sake of balance, $t_{ij}$ should be thrown out as well (or vice versa).)
+        TSeps = np.logical_or(T < epsilon, S < epsilon)
+        '''
+        TSeps = array([[ True, False, False],
+       [False,  True, False],
+       [False, False,  True]])'''
+        TSeps[np.eye(k).astype(bool)] = 0
+        '''
+        TSeps = array([[False, False, False],
+       [False, False, False],
+       [False, False, False]])'''
+        nTSeps = np.sum(TSeps[:])
+        '''
+        nTSeps = 0
+        '''
+        T[TSeps] = r
+        '''
+        T = array([[2.12132034, 3.18198052, 4.24264069],
+       [2.54558441, 3.39411255, 4.24264069],
+       [2.82842712, 3.53553391, 4.24264069]])
+        '''
+        T = np.log(T/r + 1e-12)
+        '''
+        T = array([[-6.93147181e-01, -2.87682072e-01,  9.68780611e-13],
+       [-5.10825624e-01, -2.23143551e-01,  9.50128864e-13],
+       [-4.05465108e-01, -1.82321557e-01,  9.86322135e-13]])
+        '''
+        S[TSeps] = r
+        '''
+        S = array([[0.        , 2.12132034, 4.24264069],
+       [0.84852814, 0.        , 4.24264069],
+       [1.41421356, 0.70710678, 0.        ]])
+        '''
+        S = np.log(S/r + 1e-12)
+        '''
+        S = array([[-2.76310211e+01, -6.93147181e-01,  9.68780611e-13],
+       [-1.60943791e+00, -2.76310211e+01,  9.50128864e-13],
+       [-1.09861229e+00, -1.79175947e+00, -2.76310211e+01]])
+        '''
+
+        T[np.eye(k).astype(bool)] = 0 # delete diagonal elements
+        S[np.eye(k).astype(bool)] = 0
+        '''
+        T = array([[ 0.00000000e+00, -2.87682072e-01,  9.68780611e-13],
+       [-5.10825624e-01,  0.00000000e+00,  9.50128864e-13],
+       [-4.05465108e-01, -1.82321557e-01,  0.00000000e+00]])
+       S = array([[ 0.00000000e+00, -6.93147181e-01,  9.68780611e-13],
+       [-1.60943791e+00,  0.00000000e+00,  9.50128864e-13],
+       [-1.09861229e+00, -1.79175947e+00,  0.00000000e+00]])
+        '''
+
+        ## Sum over the whole matrices
+        s1t = np.sum(T[:])
+        s1s = np.sum(S[:])
+        '''
+        s1t = -1.3862943611123903
+        s1s = -5.192956850872497
+        '''
+
+        ## Drop distances below epsilon and compute sum
+        '''
+        dists = array([[1.41421356, 2.82842712, 4.24264069]])
+        '''
+        Deps = dists < epsilon
+        nDeps = int(np.sum(Deps))
+        '''
+        Deps = array([False, False, False])
+        nDeps = 0
+        '''
+        dists = dists[nDeps:] # python index start from 0
+        '''
+         dists = array([1.41421356, 2.82842712, 4.24264069])
+        '''
+        s2 = np.sum(np.log(dists/r + 1e-12))
+        '''
+        s2 = -1.504077396770774
+        '''
+
+        ## Compute ID, subtracting numbers of dropped measurements
+        lid = -2*(k**2 - nTSeps - nDeps - nV0) / (s1t + s1s + 2*s2)
+        '''
+        lid = 1.8774629956866669
+        '''
+        lids[i] = lid
+
+    return lids
+
 
 def lid_term(logits, batch_size=100):
     """Calculate LID loss term for a minibatch of logits
-
-    :param logits: 
-    :return: 
+    :param logits:
+    :return:
     """
     # y_pred = tf.nn.softmax(logits)
     y_pred = logits
@@ -272,10 +295,9 @@ def lid_term(logits, batch_size=100):
 
 def lid_adv_term(clean_logits, adv_logits, batch_size=100):
     """Calculate LID loss term for a minibatch of advs logits
-
     :param logits: clean logits
     :param A_logits: adversarial logits
-    :return: 
+    :return:
     """
     # y_pred = tf.nn.softmax(logits)
     c_pred = tf.reshape(clean_logits, (batch_size, -1))
@@ -305,60 +327,6 @@ def lid_adv_term(clean_logits, adv_logits, batch_size=100):
     lids = tf.nn.l2_normalize(lids, dim=0, epsilon=1e-12)
 
     return lids
-
-def flip(x, nb_diff, clip_max):
-    """
-    Helper function for get_noisy_samples
-    :param x:
-    :param nb_diff:
-    :return:
-    """
-    original_shape = x.shape
-    x = np.copy(np.reshape(x, (-1,)))
-    candidate_inds = np.where(x < clip_max)[0]
-    assert candidate_inds.shape[0] >= nb_diff
-    inds = np.random.choice(candidate_inds, nb_diff)
-    x[inds] = clip_max
-
-    return np.reshape(x, original_shape)
-
-
-def get_noisy_samples(X_test, X_test_adv, dataset, attack):
-    """
-    TODO
-    :param X_test:
-    :param X_test_adv:
-    :param dataset:
-    :param attack:
-    :return:
-    """
-    if attack in ['jsma', 'cw-l0']:
-        X_test_noisy = np.zeros_like(X_test)
-        for i in range(len(X_test)):
-            # Count the number of pixels that are different
-            nb_diff = len(np.where(X_test[i] != X_test_adv[i])[0])
-            # Randomly flip an equal number of pixels (flip means move to max
-            # value of 1)
-            X_test_noisy[i] = flip(X_test[i], nb_diff, CLIP_MAX[dataset])
-    else:
-        warnings.warn("Important: using pre-set Gaussian scale sizes to craft noisy "
-                      "samples. You will definitely need to manually tune the scale "
-                      "according to the L2 print below, otherwise the result "
-                      "will inaccurate. In future scale sizes will be inferred "
-                      "automatically. For now, manually tune the scales around "
-                      "mnist: L2/20.0, cifar: L2/54.0, svhn: L2/60.0")
-        # Add Gaussian noise to the samples
-        # print(STDEVS[dataset][attack])
-        X_test_noisy = np.minimum(
-            np.maximum(
-                X_test + np.random.normal(loc=0, scale=STDEVS[dataset][attack],
-                                          size=X_test.shape),
-                CLIP_MIN[dataset]
-            ),
-            CLIP_MAX[dataset]
-        )
-
-    return X_test_noisy
 
 
 def get_mc_predictions(model, X, nb_iter=50, batch_size=256):
@@ -428,16 +396,16 @@ def get_layer_wise_activations(model, dataset):
         acts = [model.layers[-1].input]
     elif dataset == 'mnist':
         # mnist model
-        acts = [model.layers[0].input]
-        acts.extend([layer.output for layer in model.layers])
-    elif dataset == 'cifar':
+        # acts = [model.layers[0].input] +
+        acts = [layer.output for layer in model.layers[:]]
+    elif dataset == 'cifar-10':
         # cifar-10 model
-        acts = [model.layers[0].input]
-        acts.extend([layer.output for layer in model.layers])
+        # acts = [model.layers[0].input] +
+        acts = [layer.output for layer in model.layers[:]]
     else:
         # svhn model
-        acts = [model.layers[0].input]
-        acts.extend([layer.output for layer in model.layers])
+        # acts = [model.layers[0].input] +
+        acts = [layer.output for layer in model.layers[:]]
     return acts
 
 # lid of a single query point x
@@ -452,7 +420,7 @@ def mle_single(data, x, k=20):
     k = min(k, len(data)-1)
     f = lambda v: - k / np.sum(np.log(v/v[-1]))
     a = cdist(x, data)
-    a = np.apply_along_axis(np.sort, axis=1, arr=a)[:,1:k+1]
+    a = np.apply_along_axis(np.sort, axis=1, arr=a)[:, 1:k+1]
     a = np.apply_along_axis(f, axis=1, arr=a)
     return a[0]
 
@@ -467,6 +435,44 @@ def mle_batch(data, batch, k):
     a = np.apply_along_axis(np.sort, axis=1, arr=a)[:,1:k+1]
     a = np.apply_along_axis(f, axis=1, arr=a)
     return a
+
+def mle_q(lid, d_i, k, q):
+    sum = 0
+    for p in range(0, k):
+        term = (lid*(d_i[p])**(lid-1))**(1-q)
+        sum = sum+term
+    objective = -sum/(1-q) #take the negative,
+    #since we will use a solver that minimizes rather than maximizes
+    return objective
+
+def mle_q_batch(XA, XB, k, q):
+    XA = np.asarray(XA, dtype=np.float32)
+    XB = np.asarray(XB, dtype=np.float32)
+
+    if XA.ndim == 1:
+        XA = XA.reshape((-1, XA.shape[0]))
+    if XB.ndim == 1:
+        XB = XB.reshape((-1, XB.shape[0]))
+
+    k = min(k, XB.shape[0]-1)
+    f = lambda v: v/v[-1]
+    D = cdist(XA, XB)
+    D_k = np.apply_along_axis(np.sort, axis=1, arr=D)[:, 1:k+1]
+    D_r = np.apply_along_axis(f, axis=1, arr=D_k)
+
+    f = lambda v: - k / np.sum(np.log(v))
+    lids = np.apply_along_axis(f, axis=1, arr=D_r)
+
+    if q <= 1.0:
+        return lids
+    else:
+        lids_q = []
+        for i in range(D_r.shape[0]):
+            lid_0 = lids[i]
+            lid_opt = minimize(mle_q, lid_0, args=(D_r[i], k, q), method='Nelder-Mead', tol=1e-2)
+            lids_q.append(lid_opt.x[0])
+        return np.array(lids_q)
+
 
 # mean distance of x to its k nearest neighbours
 def kmean_batch(data, batch, k):
@@ -491,16 +497,17 @@ def kmean_pca_batch(data, batch, k=10):
         a[i] = kmean_batch(tmp_pca[:-1], tmp_pca[-1], k=k)
     return a
 
-def get_lids_random_batch(model, X, X_noisy, X_adv, dataset, k=10, batch_size=100):
+
+def get_lids_random_batch(model, X, X_noisy, X_adv, dataset, k=10, q=1.0, batch_size=100):
     """
     Get the local intrinsic dimensionality of each Xi in X_adv
     estimated by k close neighbours in the random batch it lies in.
     :param model:
     :param X: normal images
     :param X_noisy: noisy images
-    :param X_adv: advserial images    
-    :param dataset: 'mnist', 'cifar', 'svhn', has different DNN architectures  
-    :param k: the number of nearest neighbours for LID estimation  
+    :param X_adv: advserial images
+    :param dataset: 'mnist', 'cifar', 'svhn', has different DNN architectures
+    :param k: the number of nearest neighbours for LID estimation
     :param batch_size: default 100
     :return: lids: LID of normal images of shape (num_examples, lid_dim)
             lids_adv: LID of advs images of shape (num_examples, lid_dim)
@@ -533,11 +540,14 @@ def get_lids_random_batch(model, X, X_noisy, X_adv, dataset, k=10, batch_size=10
 
             # random clean samples
             # Maximum likelihood estimation of local intrinsic dimensionality (LID)
-            lid_batch[:, i] = mle_batch(X_act, X_act, k=k)
+            # lid_batch[:, i] = mle_q_batch(X_act, X_act, k=k, q=q)
+            lid_batch[:, i] = lid_tle(X_act, X_act, k=k)
             # print("lid_batch: ", lid_batch.shape)
-            lid_batch_adv[:, i] = mle_batch(X_act, X_adv_act, k=k)
+            # lid_batch_adv[:, i] = mle_q_batch(X_adv_act, X_act, k=k, q=q)
+            lid_batch_adv[:, i] = lid_tle(X_adv_act, X_act, k=k)
             # print("lid_batch_adv: ", lid_batch_adv.shape)
-            lid_batch_noisy[:, i] = mle_batch(X_act, X_noisy_act, k=k)
+            # lid_batch_noisy[:, i] = mle_q_batch(X_noisy_act, X_act, k=k, q=q)
+            lid_batch_noisy[:, i] = lid_tle(X_noisy_act, X_act, k=k)
             # print("lid_batch_noisy: ", lid_batch_noisy.shape)
         return lid_batch, lid_batch_noisy, lid_batch_adv
 
@@ -563,15 +573,14 @@ def get_lids_random_batch(model, X, X_noisy, X_adv, dataset, k=10, batch_size=10
 def get_kmeans_random_batch(model, X, X_noisy, X_adv, dataset, k=10, batch_size=100, pca=False):
     """
     Get the mean distance of each Xi in X_adv to its k nearest neighbors.
-
     :param model:
     :param X: normal images
     :param X_noisy: noisy images
-    :param X_adv: advserial images    
-    :param dataset: 'mnist', 'cifar', 'svhn', has different DNN architectures  
-    :param k: the number of nearest neighbours for LID estimation  
+    :param X_adv: advserial images
+    :param dataset: 'mnist', 'cifar', 'svhn', has different DNN architectures
+    :param k: the number of nearest neighbours for LID estimation
     :param batch_size: default 100
-    :param pca: using pca or not, if True, apply pca to the referenced sample and a 
+    :param pca: using pca or not, if True, apply pca to the referenced sample and a
             minibatch of normal samples, then compute the knn mean distance of the referenced sample.
     :return: kms_normal: kmean of normal images (num_examples, 1)
             kms_noisy: kmean of normal images (num_examples, 1)
@@ -696,7 +705,7 @@ def train_lr(X, y):
     :param y: the labels
     :return:
     """
-    lr = LogisticRegressionCV(n_jobs=-1).fit(X, y)
+    lr = LogisticRegressionCV(n_jobs=-1, cv=5, max_iter=1000).fit(X, y)
     return lr
 
 
@@ -808,13 +817,48 @@ def block_split(X, Y):
     X_noisy, Y_noisy = X[2*partition:], Y[2*partition:]
     num_train = int(partition*0.008) * 100
 
-    X_train = np.concatenate((X_norm[:num_train], X_noisy[:num_train], X_adv[:num_train]))
-    Y_train = np.concatenate((Y_norm[:num_train], Y_noisy[:num_train], Y_adv[:num_train]))
+    X_train = np.concatenate((X_norm[:num_train], X_adv[:num_train]))
+    Y_train = np.concatenate((Y_norm[:num_train], Y_adv[:num_train]))
 
-    X_test = np.concatenate((X_norm[num_train:], X_noisy[num_train:], X_adv[num_train:]))
-    Y_test = np.concatenate((Y_norm[num_train:], Y_noisy[num_train:], Y_adv[num_train:]))
+    X_test = np.concatenate((X_norm[num_train:], X_adv[num_train:]))
+    Y_test = np.concatenate((Y_norm[num_train:], Y_adv[num_train:]))
+
+    # X_train = np.concatenate((X_norm[:num_train], X_noisy[:num_train], X_adv[:num_train]))
+    # Y_train = np.concatenate((Y_norm[:num_train], Y_noisy[:num_train], Y_adv[:num_train]))
+    #
+    # X_test = np.concatenate((X_norm[num_train:], X_noisy[num_train:], X_adv[num_train:]))
+    # Y_test = np.concatenate((Y_norm[num_train:], Y_noisy[num_train:], Y_adv[num_train:]))
 
     return X_train, Y_train, X_test, Y_test
+
+
+def local_shuffle(image):
+    """
+    Shuffle the local path of image.
+    :return:
+    """
+    width = image.shape[0]
+    height = image.shape[1]
+    channel = image.shape[2]
+    patch_size = 4
+
+    img_new = np.zeros_like(image)
+    for i in range(0, width, patch_size):
+        i_e = np.minimum(i + patch_size, width)
+        for j in range(0, height, patch_size):
+            j_e = np.minimum(j + patch_size, height)
+            patch = image[i:i_e, j:j_e, :]
+            w = patch.shape[0]
+            h = patch.shape[1]
+            c = patch.shape[2]
+            patch = patch.reshape(-1, c)
+            idxes = np.arange(start=0, stop=patch.shape[0], step=1)
+            np.random.shuffle(idxes)
+            patch = patch[idxes, :]
+            patch_rot = patch.reshape(w, h, c)
+            img_new[i:i_e, j:j_e, :] = patch_rot
+    return img_new
+
 
 if __name__ == "__main__":
     # unit test
