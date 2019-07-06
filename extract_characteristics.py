@@ -171,7 +171,7 @@ def get_bu(model, X_test, X_test_noisy, X_test_adv):
 
     return artifacts, labels
 
-def get_lid(model, X_test, X_test_noisy, X_test_adv, k=10, q=1.0, batch_size=100, dataset='mnist'):
+def get_lid(model, X_test, X_test_adv, k=10, q=1.0, batch_size=100, dataset='mnist'):
     """
     Get local intrinsic dimensionality
     :param model: 
@@ -184,11 +184,11 @@ def get_lid(model, X_test, X_test_noisy, X_test_adv, k=10, q=1.0, batch_size=100
             labels: adversarial (label: 1) and normal/noisy (label: 0) examples
     """
     print('Extract local intrinsic dimensionality: k = %s' % k)
-    lids_normal, lids_noisy, lids_adv = get_lids_random_batch(model, X_test, X_test_noisy,
+    lids_normal, lids_adv = get_lids_random_batch(model, X_test,
                                                               X_test_adv, dataset, k=k, q=q,
                                                               batch_size=batch_size)
     print("lids_normal:", lids_normal.shape)
-    print("lids_noisy:", lids_noisy.shape)
+    # print("lids_noisy:", lids_noisy.shape)
     print("lids_adv:", lids_adv.shape)
 
     ## skip the normalization, you may want to try different normalizations later
@@ -200,7 +200,7 @@ def get_lid(model, X_test, X_test_noisy, X_test_adv, k=10, q=1.0, batch_size=100
     # )
 
     lids_pos = lids_adv
-    lids_neg = np.concatenate((lids_normal, lids_noisy))
+    lids_neg = np.concatenate((lids_normal))
     artifacts, labels = merge_and_generate_labels(lids_pos, lids_neg)
 
     return artifacts, labels
@@ -269,7 +269,7 @@ def main(args):
     image_shape = X_test.shape[1:]
     n_class = Y_test.shape[1]
 
-    # laod model
+    # load model
     model = get_model(args.dataset, softmax=True)
     model.load_weights(weights_file)
     model.compile(
@@ -288,22 +288,24 @@ def main(args):
     else:
         # Load adversarial samples
         X_test_adv = np.load(adv_file)
+        correct_idx, train_idx, test_idx = np.load('data/split_%s.npy' % args.dataset)
+        X_test_adv = X_test_adv[test_idx]
         print("X_test_adv: ", X_test_adv.shape)
 
         # as there are some parameters to tune for noisy example, so put the generation
         # step here instead of the adversarial step which can take many hours
-        noisy_file = 'data/Noisy_%s_%s.npy' % (args.dataset, args.attack)
-        if os.path.isfile(noisy_file):
-            X_test_noisy = np.load(noisy_file)
-        else:
-            # Craft an equal number of noisy samples
-            print('Crafting %s noisy samples. ' % args.dataset)
-            X_test_noisy = get_noisy_samples(X_test, X_test_adv, args.dataset, args.attack)
-            np.save(noisy_file, X_test_noisy)
+        # noisy_file = 'data/Noisy_%s_%s.npy' % (args.dataset, args.attack)
+        # if os.path.isfile(noisy_file):
+        #     X_test_noisy = np.load(noisy_file)
+        # else:
+        #     # Craft an equal number of noisy samples
+        #     print('Crafting %s noisy samples. ' % args.dataset)
+        #     X_test_noisy = get_noisy_samples(X_test, X_test_adv, args.dataset, args.attack)
+        #     np.save(noisy_file, X_test_noisy)
 
     # Check model accuracies on each sample type
-    for s_type, dataset in zip(['normal', 'noisy', 'adversarial'],
-                               [X_test, X_test_noisy, X_test_adv]):
+    for s_type, dataset in zip(['normal', 'adversarial'],
+                               [X_test, X_test_adv]):
         _, acc = model.evaluate(dataset, Y_test, batch_size=args.batch_size,
                                 verbose=0)
         print("Model accuracy on the %s test set: %0.2f%%" %
@@ -318,22 +320,23 @@ def main(args):
             print("Average L-2 perturbation size of the %s test set: %0.2f" %
                   (s_type, l2_diff))
 
+    # >>> remove note: correct classification is garanteed in 'extract_features.py'
     # Refine the normal, noisy and adversarial sets to only include samples for
     # which the original version was correctly classified by the model
-    preds_test = model.predict(X_test, batch_size=args.batch_size)
-    inds_correct = np.where(preds_test.argmax(axis=1) == Y_test.argmax(axis=1))[0]
-    print("Number of correctly predict images: %s" % (len(inds_correct)))
+    # preds_test = model.predict(X_test, batch_size=args.batch_size)
+    # inds_correct = np.where(preds_test.argmax(axis=1) == Y_test.argmax(axis=1))[0]
+    # print("Number of correctly predict images: %s" % (len(inds_correct)))
 
-    X_test = X_test[inds_correct]
-    X_test_noisy = X_test_noisy[inds_correct]
-    X_test_adv = X_test_adv[inds_correct]
+    # X_test = X_test[inds_correct]
+    # X_test_noisy = X_test_noisy[inds_correct]
+    # X_test_adv = X_test_adv[inds_correct]
     print("X_test: ", X_test.shape)
-    print("X_test_noisy: ", X_test_noisy.shape)
+    # print("X_test_noisy: ", X_test_noisy.shape)  # >>> note: the noisy is not used
     print("X_test_adv: ", X_test_adv.shape)
 
     if args.characteristic == 'kd':
         # extract kernel density
-        characteristics, labels = get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv, args.dataset)
+        characteristics, labels = get_kd(model, X_train, Y_train, X_test, X_test_adv, args.dataset)
         print("KD: [characteristic shape: ", characteristics.shape, ", label shape: ", labels.shape)
 
         # save to file
@@ -343,7 +346,7 @@ def main(args):
         np.save(file_name, data)
     elif args.characteristic == 'bu':
         # extract Bayesian uncertainty
-        characteristics, labels = get_bu(model, X_test, X_test_noisy, X_test_adv)
+        characteristics, labels = get_bu(model, X_test, X_test_adv)
         print("BU: [characteristic shape: ", characteristics.shape, ", label shape: ", labels.shape)
 
         # save to file
@@ -352,7 +355,7 @@ def main(args):
         np.save(file_name, data)
     elif args.characteristic == 'lid':
         # extract local intrinsic dimensionality
-        characteristics, labels = get_lid(model, X_test, X_test_noisy, X_test_adv, args.lid_k,
+        characteristics, labels = get_lid(model, X_test, X_test_adv, args.lid_k,
                                           args.lid_q, args.batch_size, args.dataset)
         print("LID: [characteristic shape: ", characteristics.shape, ", label shape: ", labels.shape)
 
@@ -375,19 +378,19 @@ def main(args):
         np.save(file_name, data)
     elif args.characteristic == 'all':
         # extract kernel density
-        characteristics, labels = get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv, args.dataset)
+        characteristics, labels = get_kd(model, X_train, Y_train, X_test, X_test_adv, args.dataset)
         file_name = 'data/kd_%s_%s.npy' % (args.dataset, args.attack)
         data = np.concatenate((characteristics, labels), axis=1)
         np.save(file_name, data)
 
         # extract Bayesian uncertainty
-        characteristics, labels = get_bu(model, X_test, X_test_noisy, X_test_adv)
+        characteristics, labels = get_bu(model, X_test, X_test_adv)
         file_name = 'data/bu_%s_%s.npy' % (args.dataset, args.attack)
         data = np.concatenate((characteristics, labels), axis=1)
         np.save(file_name, data)
 
         # extract local intrinsic dimensionality
-        characteristics, labels = get_lid(model, X_test, X_test_noisy, X_test_adv, args.lid_k,
+        characteristics, labels = get_lid(model, X_test, X_test_adv, args.lid_k,
                                           args.lid_q, args.batch_size, args.dataset)
         file_name = 'data/lid_%s_%s_%s_%s.npy' % (args.dataset, args.attack, args.lid_k, args.lid_q)
         data = np.concatenate((characteristics, labels), axis=1)
@@ -443,16 +446,18 @@ if __name__ == "__main__":
     parser.set_defaults(lid_k=20)
     parser.set_defaults(lid_q=1.0)
     parser.set_defaults(confidence=0)
-    args = parser.parse_args()
-    main(args)
+    # args = parser.parse_args()
+    # main(args)
 
     # os.environ['CUDA_VISIBLE_DEVICES'] = '3'
     #
-    # for k in [8, 10, 20]:
-    #     for q in [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]:
-    #         args = parser.parse_args(['-d', 'derm', '-a', 'fgsm', '-r', 'lid',
-    #                                   '-k', str(k), '-q', str(q), '-b', '100'])
-    #         main(args)
+    for k in [30, 50, 100]:
+        for q in [1.0, 2.0]:
+            argv = ['-d', 'derm', '-a', 'fgsm', '-r', 'lid',
+                                      '-k', str(k), '-q', str(q), '-b', '100']
+            print(argv)
+            args = parser.parse_args(argv)
+            main(args)
     # for k in [10, 20, 30, 40, 50, 60, 70, 80, 90]:
     #     for q in [0]:
     #         args = parser.parse_args(['-d', 'cifar-10', '-a', 'fgsm', '-r', 'lid',

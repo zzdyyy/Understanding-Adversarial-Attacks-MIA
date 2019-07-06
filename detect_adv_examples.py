@@ -116,7 +116,27 @@ if __name__ == "__main__":
         help="The batch size to use for training.",
         required=False, type=int
     )
+    parser.add_argument(
+        '-k', '--lid_k',
+        help="The number of nearest neighbours to use; either 10, 20, 100 ",
+        required=False, type=int
+    )
+    parser.add_argument(
+        '-q', '--lid_q',
+        help="The q parameter for LIDq estimation ",
+        required=False, type=float
+    )
     parser.set_defaults(batch_size=100)
     parser.set_defaults(test_attack=None)
-    args = parser.parse_args()
-    detect(args)
+    parser.set_defaults(lid_k=20)
+    parser.set_defaults(lid_q=1.0)
+    # args = parser.parse_args()
+    # detect(args)
+
+    for k in [30, 50, 100]:
+        for q in [1.0, 2.0]:
+            argv = ['-d', 'derm', '-a', 'fgsm', '-t', 'fgsm', '-r', 'lid',
+                                      '-k', str(k), '-q', str(q)]
+            print(argv)
+            args = parser.parse_args(argv)
+            detect(args)

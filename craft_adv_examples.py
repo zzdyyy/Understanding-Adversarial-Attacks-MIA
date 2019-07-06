@@ -21,6 +21,7 @@ from cleverhans.utils_keras import KerasModelWrapper
 from cw_attacks import CarliniL2, CarliniLID
 from pgd_attack import LinfPGDAttack
 from ead_attack import EADL1
+from global_config import *
 
 import keras.backend as K
 K.set_learning_phase(0)
@@ -38,14 +39,13 @@ SETTING = {
     'svhn': {'eps': 0.05, 'eps_iter': 0.005, 'nb_iter': 20,
              'theta': 1., 'gamma': 0.145, 'image_size': 32,
              'num_channels': 3, 'num_labels': 10},
-    'dr': {'eps': 2 / 255 * 2, 'eps_iter': 1 / 255 * 2, 'nb_iter': 5, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},  # TODO: not determined
-    'cxr': {'eps': 3 / 255 * 2, 'eps_iter': 1 / 255 * 2, 'nb_iter': 5, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},
-    'derm': {'eps': 2 / 255 * 2, 'eps_iter': 1 / 255 * 2, 'nb_iter': 4, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2}
+    'dr': {'eps': 2 / 255 * 2, 'eps_iter': 0.5 / 255 * 2, 'nb_iter': 5, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},  # TODO: not determined
+    'cxr': {'eps': 3 / 255 * 2, 'eps_iter': 0.5 / 255 * 2, 'nb_iter': 5, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},
+    'derm': {'eps': 2 / 255 * 2, 'eps_iter': 0.5 / 255 * 2, 'nb_iter': 5, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2}
 }
 
 CLIP_MIN = {'mnist': -0.5, 'cifar': -0.5, 'svhn': -0.5, 'dr': -1.0, 'cxr': -1.0, 'derm': -1.0}
 CLIP_MAX = {'mnist':  0.5, 'cifar':  0.5, 'svhn':  0.5, 'dr':  1.0, 'cxr':  1.0, 'derm':  1.0}
-PATH_DATA = "data/"
 
 def craft_one_type(sess, model, X, Y, dataset, attack, confidence, batch_size):
     """
@@ -239,9 +239,9 @@ def main(args):
     X_adv = craft_one_type(sess, model, X_test, Y_test, args.dataset,
                            args.attack, args.confidence, args.batch_size)
     if args.attack in ['cw-l2', 'cw-li', 'cw-lid']:
-        save_file = 'data/Adv_%s_%s_%s.npy' % (args.dataset, args.attack, args.confidence)
+        save_file = 'data/' + ADV_PREFIX + 'Adv_%s_%s_%s.npy' % (args.dataset, args.attack, args.confidence)
     else:
-        save_file = 'data/Adv_%s_%s.npy' % (args.dataset, args.attack)
+        save_file = 'data/' + ADV_PREFIX + 'Adv_%s_%s.npy' % (args.dataset, args.attack)
     np.save(save_file, X_adv)
     print('Adversarial samples crafted and saved to %s ' % save_file)
 

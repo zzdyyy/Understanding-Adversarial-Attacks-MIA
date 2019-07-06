@@ -498,7 +498,7 @@ def kmean_pca_batch(data, batch, k=10):
     return a
 
 
-def get_lids_random_batch(model, X, X_noisy, X_adv, dataset, k=10, q=1.0, batch_size=100):
+def get_lids_random_batch(model, X, X_adv, dataset, k=10, q=1.0, batch_size=100):
     """
     Get the local intrinsic dimensionality of each Xi in X_adv
     estimated by k close neighbours in the random batch it lies in.
@@ -534,8 +534,8 @@ def get_lids_random_batch(model, X, X_noisy, X_adv, dataset, k=10, q=1.0, batch_
             X_adv_act = np.asarray(X_adv_act, dtype=np.float32).reshape((n_feed, -1))
             # print("X_adv_act: ", X_adv_act.shape)
 
-            X_noisy_act = func([X_noisy[start:end], 0])[0]
-            X_noisy_act = np.asarray(X_noisy_act, dtype=np.float32).reshape((n_feed, -1))
+            # X_noisy_act = func([X_noisy[start:end], 0])[0]
+            # X_noisy_act = np.asarray(X_noisy_act, dtype=np.float32).reshape((n_feed, -1))
             # print("X_noisy_act: ", X_noisy_act.shape)
 
             # random clean samples
@@ -547,28 +547,28 @@ def get_lids_random_batch(model, X, X_noisy, X_adv, dataset, k=10, q=1.0, batch_
             lid_batch_adv[:, i] = lid_tle(X_adv_act, X_act, k=k)
             # print("lid_batch_adv: ", lid_batch_adv.shape)
             # lid_batch_noisy[:, i] = mle_q_batch(X_noisy_act, X_act, k=k, q=q)
-            lid_batch_noisy[:, i] = lid_tle(X_noisy_act, X_act, k=k)
+            # lid_batch_noisy[:, i] = lid_tle(X_noisy_act, X_act, k=k)
             # print("lid_batch_noisy: ", lid_batch_noisy.shape)
-        return lid_batch, lid_batch_noisy, lid_batch_adv
+        return lid_batch, lid_batch_adv
 
     lids = []
     lids_adv = []
-    lids_noisy = []
+    # lids_noisy = []
     n_batches = int(np.ceil(X.shape[0] / float(batch_size)))
     for i_batch in tqdm(range(n_batches)):
-        lid_batch, lid_batch_noisy, lid_batch_adv = estimate(i_batch)
+        lid_batch, lid_batch_adv = estimate(i_batch)
         lids.extend(lid_batch)
         lids_adv.extend(lid_batch_adv)
-        lids_noisy.extend(lid_batch_noisy)
+        # lids_noisy.extend(lid_batch_noisy)
         # print("lids: ", lids.shape)
         # print("lids_adv: ", lids_noisy.shape)
         # print("lids_noisy: ", lids_noisy.shape)
 
     lids = np.asarray(lids, dtype=np.float32)
-    lids_noisy = np.asarray(lids_noisy, dtype=np.float32)
+    # lids_noisy = np.asarray(lids_noisy, dtype=np.float32)
     lids_adv = np.asarray(lids_adv, dtype=np.float32)
 
-    return lids, lids_noisy, lids_adv
+    return lids, lids_adv
 
 def get_kmeans_random_batch(model, X, X_noisy, X_adv, dataset, k=10, batch_size=100, pca=False):
     """

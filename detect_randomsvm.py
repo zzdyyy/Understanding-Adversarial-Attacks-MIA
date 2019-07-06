@@ -155,12 +155,12 @@ def detect(args):
     print('Accuracy: ', accuracy_score(dy_test, detector.predict(dX_test)))
     print('ROC:', roc_auc_score(dy_test, detector.predict_proba(dX_test)[:, 1]))
 
-    print('end')
-    import scipy.io as sio
-    y = y[..., None]
-    data = np.concatenate([X,y], axis=1)
-    sio.savemat('feat.mat', {'data': data})
-    from sklearn.ensemble import BaggingClassifier
+    # print('end')
+    # import scipy.io as sio
+    # y = y[..., None]
+    # data = np.concatenate([X,y], axis=1)
+    # sio.savemat('feat.mat', {'data': data})
+    # from sklearn.ensemble import BaggingClassifier
 
 
 
@@ -178,11 +178,11 @@ if __name__ == "__main__":
     )
 
 
-    args = parser.parse_args()
-    detect(args)
+    # args = parser.parse_args()
+    # detect(args)
 
-    # for ds in ['derm', 'dr', 'cxr']:
-    #     for atk in ['fgsm', 'bim', 'pgd']:
-    #         args = parser.parse_args(['-d', ds, '-a', atk])
-    #         detect(args)
+    for ds in ['derm', 'dr', 'cxr']:
+        for atk in ['fgsm', 'bim', 'pgd']:
+            args = parser.parse_args(['-d', ds, '-a', atk])
+            detect(args)
 
