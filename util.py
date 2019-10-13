@@ -705,7 +705,7 @@ def train_lr(X, y):
     :param y: the labels
     :return:
     """
-    lr = LogisticRegressionCV(n_jobs=-1, cv=5, max_iter=1000).fit(X, y)
+    lr = LogisticRegressionCV(cv=5, max_iter=1000).fit(X, y)
     return lr
 
 

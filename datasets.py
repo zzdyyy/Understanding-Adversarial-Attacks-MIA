@@ -14,6 +14,10 @@ from subprocess import call
 from keras.datasets import mnist, cifar10
 from keras.utils import np_utils
 import keras
+import glob
+import cv2
+import imageio
+from global_config import *
 
 
 STDEVS = {
@@ -38,18 +42,27 @@ def get_data(dataset='mnist', clip_min=-0.5, clip_max=0.5, onehot=True, path='da
     if not os.path.exists(path):
         os.makedirs(path)
 
+    if dataset == 'imagenet':
+        flist = sorted(glob.glob('data/imagenet/*.jpg'))
+        X = map(lambda path: cv2.resize(imageio.imread(path), (224, 224)), flist)
+        X = list(X)
+        X = np.stack(X)
+        X = keras.applications.resnet50.preprocess_input(X)
+        Y = keras.utils.to_categorical([281, 281, 281, 250, 250, 281, 281, 250, 281, 281, 250, 281, 250], 1000)
+        return X[:0], Y[:0], X, Y
+
     if dataset in ['dr', 'cxr', 'derm']:
         if load_feat is not None:
-            X_all = np.load('data/feat_%s_%s.npy' % (dataset, load_feat))
+            X_all = np.load('data/' + ADV_PREFIX + 'feat_%s_%s.npy' % (dataset, load_feat))
         else:
             X_all = np.load('adversarial_medicine/numpy_to_share/%s/val_test_x.npy' % dataset).astype('float32')
-        keras.applications.inception_resnet_v2.preprocess_input(X_all)  # transform value range to [-1, 1]
+            keras.applications.inception_resnet_v2.preprocess_input(X_all)  # transform value range to [-1, 1]
         Y_all = np.load('adversarial_medicine/numpy_to_share/%s/val_test_y.npy' % dataset)
         if not onehot:
             Y_all = np.argmax(Y_all, axis=1)
 
         if split_traintest:
-            correct_idx, train_idx, test_idx = np.load('data/split_%s.npy' % dataset)
+            correct_idx, train_idx, test_idx = np.load('data/' + ADV_PREFIX + 'split_%s.npy' % dataset, allow_pickle=True)
             X_train, Y_train = X_all[train_idx], Y_all[train_idx]
             X_test, Y_test = X_all[test_idx], Y_all[test_idx]
         else:

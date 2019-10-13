@@ -10,15 +10,18 @@ import keras
 import numpy as np
 import sklearn.metrics
 from sklearn.model_selection import StratifiedShuffleSplit, StratifiedKFold
+from global_config import *
 
 DATASETS = ['dr', 'cxr', 'derm']
 ATTACKS = ['fgsm', 'bim', 'jsma', 'cw-l2', 'clean']
-TEST_SIZE = {'dr': 0.7, 'cxr': 0.7, 'derm': 0.6}
+TEST_SIZE = {'dr': 1.0, 'cxr': 1.0, 'derm': 1.0, 'imagenet': 1.0}
+# TEST_SIZE = {'dr': 0.7, 'cxr': 0.7, 'derm': 0.6}
 
 def extract(args):
-    assert args.dataset in ['mnist', 'cifar-10', 'svhn', 'dr', 'cxr', 'derm'], \
+    assert args.dataset in ['mnist', 'cifar-10', 'svhn', 'dr', 'cxr', 'derm', 'imagenet'], \
         "Dataset parameter must be either 'mnist', 'cifar-10', 'svhn', 'dr', 'cxr', or 'derm'"
-    assert args.attack in ['clean', 'fgsm', 'bim', 'jsma', 'deepfool', 'pgd', 'ead', 'cw-l2', 'cw-lid'], \
+    assert args.attack in ['clean', 'fgsm', 'bim', 'jsma', 'deepfool', 'pgd', 'ead', 'cw-l2', 'cw-lid', 'cw-li',
+                           'fgsm_bb', 'bim_bb', 'jsma_bb', 'deepfool_bb', 'pgd_bb', 'ead_bb', 'cw-l2_bb', 'cw-lid_bb', 'cw-li_bb'], \
         "Attack parameter must be either 'fgsm', 'bim', 'jsma', 'deepfool', " \
         "'pgd', 'ead', 'cw-l2', 'cw-lid'"
 
@@ -41,7 +44,7 @@ def extract(args):
         _, _, X_test, Y_test = get_data(args.dataset, split_traintest=False)
 
         feat = feat_model.predict(X_test, batch_size=args.batch_size, verbose=1)
-        np.save('data/feat_%s_%s.npy' % (args.dataset, args.attack), feat)
+        np.save('data/' + ADV_PREFIX + 'feat_%s_%s.npy' % (args.dataset, args.attack), feat)
         print('feature saved.')
 
         cnn_clf = keras.backend.function([model.layers[-1].input], [model.output])
@@ -54,20 +57,24 @@ def extract(args):
         # split examples for train (the random svms) and testing (the detection)
         y_true = y_true[idx_correct]
         X_test = X_test[idx_correct]
-        sss = StratifiedShuffleSplit(n_splits=1, test_size=TEST_SIZE[args.dataset], random_state=42)
-        train_idx, test_idx = next(sss.split(X_test, y_true))
+        if TEST_SIZE[args.dataset]<1.0:
+            sss = StratifiedShuffleSplit(n_splits=1, test_size=TEST_SIZE[args.dataset], random_state=42)
+            train_idx, test_idx = next(sss.split(X_test, y_true))
+        else:
+            train_idx = []
+            test_idx = list(range(len(y_true)))
         print('Train: %d = %d negative + %d positive' % (len(train_idx), len(train_idx) - y_true[train_idx].sum(), y_true[train_idx].sum()))
         print('Test:  %d = %d negative + %d positive' % (len(test_idx), len(test_idx) - y_true[test_idx].sum(), y_true[test_idx].sum()))
-        np.save('data/split_%s.npy' % args.dataset, (idx_correct, idx_correct[train_idx], idx_correct[test_idx]))
+        np.save('data/' + ADV_PREFIX + 'split_%s.npy' % args.dataset, (idx_correct, idx_correct[train_idx], idx_correct[test_idx]))
 
     else:
         if args.attack in ['cw-l2', 'cw-li', 'cw-lid']:
-            save_file = 'data/Adv_%s_%s_%s.npy' % (args.dataset, args.attack, args.confidence)
+            save_file = 'data/' + ADV_PREFIX + 'Adv_%s_%s_%s.npy' % (args.dataset, args.attack, args.confidence)
         else:
-            save_file = 'data/Adv_%s_%s.npy' % (args.dataset, args.attack)
+            save_file = 'data/' + ADV_PREFIX + 'Adv_%s_%s.npy' % (args.dataset, args.attack)
         X_adv = np.load(save_file)
         feat = feat_model.predict(X_adv, batch_size=args.batch_size, verbose=1)
-        np.save('data/feat_%s_%s.npy' % (args.dataset, args.attack), feat)
+        np.save('data/' + ADV_PREFIX + 'feat_%s_%s.npy' % (args.dataset, args.attack), feat)
         print('feature saved.')
 
 

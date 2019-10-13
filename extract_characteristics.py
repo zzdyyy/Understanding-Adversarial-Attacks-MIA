@@ -12,6 +12,7 @@ from util import (get_mc_predictions, get_deep_representations, score_samples, n
                       get_lids_random_batch, get_kmeans_random_batch)
 from datasets import get_data, get_noisy_samples
 from models import get_model
+from global_config import *
 
 # In the original paper, the author used optimal KDE bandwidths dataset-wise
 #  that were determined from CV tuning
@@ -49,7 +50,7 @@ def merge_and_generate_labels(X_pos, X_neg):
     return X, y
 
 
-def get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv, dataset):
+def get_kd(model, X_train, Y_train, X_test, X_test_adv, dataset):
     """
     Get kernel density scores
     :param model: 
@@ -63,13 +64,13 @@ def get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv, dataset):
     """
     # Get deep feature representations
     print('Getting deep feature representations...')
-    X_train_features = get_deep_representations(model, X_train, index=-2 if dataset in ['dr', 'crx', 'derm'] else -4,
+    X_train_features = get_deep_representations(model, X_train, index=-2 if dataset in ['dr', 'cxr', 'derm'] else -4,
                                                 batch_size=args.batch_size)
-    X_test_normal_features = get_deep_representations(model, X_test, index=-2 if dataset in ['dr', 'crx', 'derm'] else -4,
+    X_test_normal_features = get_deep_representations(model, X_test, index=-2 if dataset in ['dr', 'cxr', 'derm'] else -4,
                                                       batch_size=args.batch_size)
-    X_test_noisy_features = get_deep_representations(model, X_test_noisy, index=-2 if dataset in ['dr', 'crx', 'derm'] else -4,
-                                                     batch_size=args.batch_size)
-    X_test_adv_features = get_deep_representations(model, X_test_adv, index=-2 if dataset in ['dr', 'crx', 'derm'] else -4,
+    # X_test_noisy_features = get_deep_representations(model, X_test_noisy, index=-2 if dataset in ['dr', 'cxr', 'derm'] else -4,
+    #                                                  batch_size=args.batch_size)
+    X_test_adv_features = get_deep_representations(model, X_test_adv, index=-2 if dataset in ['dr', 'cxr', 'derm'] else -4,
                                                    batch_size=args.batch_size)
     # Train one KDE per class
     print('Training KDEs...')
@@ -90,8 +91,8 @@ def get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv, dataset):
     print('Computing model predictions...')
     preds_test_normal = model.predict_classes(X_test, verbose=0,
                                               batch_size=args.batch_size)
-    preds_test_noisy = model.predict_classes(X_test_noisy, verbose=0,
-                                             batch_size=args.batch_size)
+    # preds_test_noisy = model.predict_classes(X_test_noisy, verbose=0,
+    #                                          batch_size=args.batch_size)
     preds_test_adv = model.predict_classes(X_test_adv, verbose=0,
                                            batch_size=args.batch_size)
     # Get density estimates
@@ -101,11 +102,11 @@ def get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv, dataset):
         X_test_normal_features,
         preds_test_normal
     )
-    densities_noisy = score_samples(
-        kdes,
-        X_test_noisy_features,
-        preds_test_noisy
-    )
+    # densities_noisy = score_samples(
+    #     kdes,
+    #     X_test_noisy_features,
+    #     preds_test_noisy
+    # )
     densities_adv = score_samples(
         kdes,
         X_test_adv_features,
@@ -114,7 +115,7 @@ def get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv, dataset):
 
     print("densities_normal:", densities_normal.shape)
     print("densities_adv:", densities_adv.shape)
-    print("densities_noisy:", densities_noisy.shape)
+    # print("densities_noisy:", densities_noisy.shape)
 
     ## skip the normalization, you may want to try different normalizations later
     ## so at this step, just save the raw values
@@ -125,12 +126,12 @@ def get_kd(model, X_train, Y_train, X_test, X_test_noisy, X_test_adv, dataset):
     # )
 
     densities_pos = densities_adv
-    densities_neg = np.concatenate((densities_normal, densities_noisy))
+    densities_neg = densities_normal  #np.concatenate((densities_normal, densities_noisy))
     artifacts, labels = merge_and_generate_labels(densities_pos, densities_neg)
 
     return artifacts, labels
 
-def get_bu(model, X_test, X_test_noisy, X_test_adv):
+def get_bu(model, X_test, X_test_adv):
     """
     Get Bayesian uncertainty scores
     :param model: 
@@ -146,15 +147,15 @@ def get_bu(model, X_test, X_test_noisy, X_test_adv):
     uncerts_normal = get_mc_predictions(model, X_test,
                                         batch_size=args.batch_size) \
         .var(axis=0).mean(axis=1)
-    uncerts_noisy = get_mc_predictions(model, X_test_noisy,
-                                       batch_size=args.batch_size) \
-        .var(axis=0).mean(axis=1)
+    # uncerts_noisy = get_mc_predictions(model, X_test_noisy,
+    #                                    batch_size=args.batch_size) \
+    #     .var(axis=0).mean(axis=1)
     uncerts_adv = get_mc_predictions(model, X_test_adv,
                                      batch_size=args.batch_size) \
         .var(axis=0).mean(axis=1)
 
     print("uncerts_normal:", uncerts_normal.shape)
-    print("uncerts_noisy:", uncerts_noisy.shape)
+    # print("uncerts_noisy:", uncerts_noisy.shape)
     print("uncerts_adv:", uncerts_adv.shape)
 
     ## skip the normalization, you may want to try different normalizations later
@@ -166,7 +167,7 @@ def get_bu(model, X_test, X_test_noisy, X_test_adv):
     # )
 
     uncerts_pos = uncerts_adv
-    uncerts_neg = np.concatenate((uncerts_normal, uncerts_noisy))
+    uncerts_neg = uncerts_normal  # np.concatenate((uncerts_normal, uncerts_noisy))
     artifacts, labels = merge_and_generate_labels(uncerts_pos, uncerts_neg)
 
     return artifacts, labels
@@ -241,9 +242,10 @@ def get_kmeans(model, X_test, X_test_noisy, X_test_adv, k=10, batch_size=100, da
     return artifacts, labels
 
 def main(args):
-    assert args.dataset in ['mnist', 'cifar-10', 'svhn', 'dr', 'cxr', 'derm'], \
+    assert args.dataset in ['mnist', 'cifar-10', 'svhn', 'dr', 'cxr', 'derm', 'imagenet'], \
         "Dataset parameter must be either 'mnist', 'cifar-10' or 'svhn', 'dr', 'cxr', 'derm'"
-    assert args.attack in ['fgsm', 'bim', 'jsma', 'deepfool', 'pgd', 'ead', 'cw-l2', 'cw-lid'], \
+    assert args.attack in ['fgsm', 'bim', 'jsma', 'deepfool', 'pgd', 'ead', 'cw-l2', 'cw-lid', 'cw-li',
+                           'fgsm_bb', 'bim_bb', 'jsma_bb', 'deepfool_bb', 'pgd_bb', 'ead_bb', 'cw-l2_bb', 'cw-lid_bb', 'cw-li_bb'], \
         "Attack parameter must be either 'fgsm', 'bim', 'jsma', 'deepfool', " \
         "'pgd', 'ead', 'cw-l2', 'cw-lid'"
     assert args.characteristic in ['kd', 'bu', 'lid', 'km', 'all'], \
@@ -255,9 +257,9 @@ def main(args):
         'model weights not found... must first train model using train_model.py.'
 
     if args.attack in ['cw-l2', 'cw-li', 'cw-lid']:
-        adv_file = "data/Adv_%s_%s_%s.npy" % (args.dataset, args.attack, args.confidence)
+        adv_file = "data/" + ADV_PREFIX + "Adv_%s_%s_%s.npy" % (args.dataset, args.attack, args.confidence)
     else:
-        adv_file = "data/Adv_%s_%s.npy" % (args.dataset, args.attack)
+        adv_file = "data/" + ADV_PREFIX + "Adv_%s_%s.npy" % (args.dataset, args.attack)
     assert os.path.isfile(adv_file), \
             'adversarial sample file not found... must first craft adversarial ' \
             'samples using craft_adv_samples.py'
@@ -288,7 +290,7 @@ def main(args):
     else:
         # Load adversarial samples
         X_test_adv = np.load(adv_file)
-        correct_idx, train_idx, test_idx = np.load('data/split_%s.npy' % args.dataset)
+        correct_idx, train_idx, test_idx = np.load('data/' + ADV_PREFIX + 'split_%s.npy' % args.dataset, allow_pickle=True)
         X_test_adv = X_test_adv[test_idx]
         print("X_test_adv: ", X_test_adv.shape)
 
@@ -336,12 +338,13 @@ def main(args):
 
     if args.characteristic == 'kd':
         # extract kernel density
-        characteristics, labels = get_kd(model, X_train, Y_train, X_test, X_test_adv, args.dataset)
+        characteristics, labels = get_kd(model, X_test, Y_test, X_test, X_test_adv, args.dataset)
         print("KD: [characteristic shape: ", characteristics.shape, ", label shape: ", labels.shape)
 
         # save to file
         bandwidth = BANDWIDTHS[args.dataset]
-        file_name = 'data/kd_%s_%s_%.4f.npy' % (args.dataset, args.attack, bandwidth)
+        # file_name = 'data/' + ADV_PREFIX + 'kd_%s_%s_%.4f.npy' % (args.dataset, args.attack, bandwidth)
+        file_name = 'data/' + ADV_PREFIX + 'kd_%s_%s.npy' % (args.dataset, args.attack)
         data = np.concatenate((characteristics, labels), axis=1)
         np.save(file_name, data)
     elif args.characteristic == 'bu':
@@ -350,7 +353,7 @@ def main(args):
         print("BU: [characteristic shape: ", characteristics.shape, ", label shape: ", labels.shape)
 
         # save to file
-        file_name = 'data/bu_%s_%s.npy' % (args.dataset, args.attack)
+        file_name = 'data/' + ADV_PREFIX + 'bu_%s_%s.npy' % (args.dataset, args.attack)
         data = np.concatenate((characteristics, labels), axis=1)
         np.save(file_name, data)
     elif args.characteristic == 'lid':
@@ -360,7 +363,7 @@ def main(args):
         print("LID: [characteristic shape: ", characteristics.shape, ", label shape: ", labels.shape)
 
         # save to file
-        file_name = 'data/lid_%s_%s_%s_%s.npy' % (args.dataset, args.attack, args.lid_k, args.lid_q)
+        file_name = 'data/' + ADV_PREFIX + 'lid_%s_%s_%s_%s.npy' % (args.dataset, args.attack, args.lid_k, args.lid_q)
         # file_name = os.path.join('data_grid_search/lid_large_batch/', 'lid_%s_%s_%s.npy' %
         #                          (args.dataset, args.attack, args.k_nearest))
 
@@ -446,18 +449,18 @@ if __name__ == "__main__":
     parser.set_defaults(lid_k=20)
     parser.set_defaults(lid_q=1.0)
     parser.set_defaults(confidence=0)
-    # args = parser.parse_args()
-    # main(args)
+    args = parser.parse_args()
+    main(args)
 
     # os.environ['CUDA_VISIBLE_DEVICES'] = '3'
     #
-    for k in [30, 50, 100]:
-        for q in [1.0, 2.0]:
-            argv = ['-d', 'derm', '-a', 'fgsm', '-r', 'lid',
-                                      '-k', str(k), '-q', str(q), '-b', '100']
-            print(argv)
-            args = parser.parse_args(argv)
-            main(args)
+    # for k in [30, 50, 100]:
+    #     for q in [1.0, 2.0]:
+    #         argv = ['-d', 'derm', '-a', 'fgsm', '-r', 'lid',
+    #                                   '-k', str(k), '-q', str(q), '-b', '100']
+    #         print(argv)
+    #         args = parser.parse_args(argv)
+    #         main(args)
     # for k in [10, 20, 30, 40, 50, 60, 70, 80, 90]:
     #     for q in [0]:
     #         args = parser.parse_args(['-d', 'cifar-10', '-a', 'fgsm', '-r', 'lid',

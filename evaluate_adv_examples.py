@@ -50,173 +50,12 @@ SETTING = {
 CLIP_MIN = {'mnist': -0.5, 'cifar': -0.5, 'svhn': -0.5, 'dr': -1.0, 'cxr': -1.0, 'derm': -1.0, 'imagenet':-128.0}
 CLIP_MAX = {'mnist':  0.5, 'cifar':  0.5, 'svhn':  0.5, 'dr':  1.0, 'cxr':  1.0, 'derm':  1.0, 'imagenet':128.0}
 
-def craft_one_type(sess, model, X, Y, dataset, attack, confidence, batch_size, keras_model):
-    """
-    TODO
-    :param sess:
-    :param model:
-    :param X:
-    :param Y:
-    :param dataset:
-    :param attack:
-    :param confidence: confidence of the attack
-    :param batch_size:
-    :return:
-    """
-    # Define TF placeholders for the input and output
-    x = tf.placeholder(tf.float32, shape=(None,) + X.shape[1:])
-    y = tf.placeholder(tf.float32, shape=(None,) + Y.shape[1:])
 
-    if attack == 'fgsm':
-        # FastGradientMethod
-        print('Crafting fgsm adversarial samples...')
-        fgsm = FastGradientMethod(model, sess=sess)
-        fgsm_params = {'eps': SETTING[dataset]['eps'],
-                       'clip_min': CLIP_MIN[dataset],
-                       'clip_max': CLIP_MAX[dataset]}
-        adv_x = fgsm.generate(x, **fgsm_params)
-
-        print(x.shape)
-        X_adv, = batch_eval(
-            sess, [x, y], [adv_x],
-            [X, Y], batch_size=batch_size, feed={})
-    elif attack == 'bim':
-        # BasicIterativeMethod
-        print('Crafting %s adversarial samples...' % attack)
-        bim = BasicIterativeMethod(model, sess=sess)
-        bim_params = {'eps': SETTING[dataset]['eps'],
-                      'eps_iter': SETTING[dataset]['eps_iter'],
-                      'nb_iter': SETTING[dataset]['nb_iter'],
-                      'clip_min': CLIP_MIN[dataset],
-                      'clip_max': CLIP_MAX[dataset]}
-        adv_x = bim.generate(x, **bim_params)
-
-        X_adv, = batch_eval(
-            sess, [x, y], [adv_x],
-            [X, Y], batch_size=batch_size, feed={})
-
-    elif attack == 'jsma':
-        # SaliencyMapMethod
-        print('Crafting %s examples. This may take > 5 hours' % attack)
-        jsma = SaliencyMapMethod(model, sess=sess)
-        jsma_params = {'theta': SETTING[dataset]['theta'],
-                       'gamma': SETTING[dataset]['gamma'],
-                       'clip_min': CLIP_MIN[dataset],
-                       'clip_max': CLIP_MAX[dataset]}
-        adv_x = jsma.generate(x, **jsma_params)
-
-        X_adv, = batch_eval(
-            sess, [x, y], [adv_x],
-            [X, Y], batch_size=batch_size, feed={})
-
-    elif attack == 'deepfool':
-        # DeepFool
-        print('Crafting %s adversarial samples...' % attack)
-        deepfool = DeepFool(model, sess=sess)
-        deepfool_params = {'nb_candidate': 2,
-                           'overshoot': 0.02,
-                           'max_iter': 50,
-                           'clip_min': CLIP_MIN[dataset],
-                           'clip_max': CLIP_MAX[dataset]}
-        adv_x = deepfool.generate(x, **deepfool_params)
-
-        X_adv, = batch_eval(
-            sess, [x, y], [adv_x],
-            [X, Y], batch_size=batch_size, feed={})
-
-    elif attack == 'pgd':
-        # The Projected Gradient Descent Attack
-        print('Crafting %s adversarial samples...' % attack)
-        pgd = MadryEtAl(model, sess=sess)
-        pgd_params = {'eps': SETTING[dataset]['eps'],
-                      'eps_iter': SETTING[dataset]['eps_iter'] * 2,
-                      'nb_iter': SETTING[dataset]['nb_iter'],
-                      'clip_min': CLIP_MIN[dataset],
-                      'clip_max': CLIP_MAX[dataset]}
-        adv_x = pgd.generate(x, **pgd_params)
-
-        X_adv, = batch_eval(
-            sess, [x, y], [adv_x],
-            [X, Y], batch_size=batch_size, feed={})
-
-    elif attack == 'ead':
-        # ElasticNetMethod, attack the logits layer
-        print('Crafting %s examples. This may take > 5 hours' % attack)
-        ead = ElasticNetMethod(model, sess=sess)
-        ead_params = {'beta': 1e-1,
-                      'batch_size': batch_size,
-                      'confidence': confidence,
-                      'learning_rate': 1e-2,
-                      'binary_search_steps': 9,
-                      'max_iterations': 1000,
-                      'abort_early': False,
-                      'initial_const': 1e-3,
-                      'clip_min': CLIP_MIN[dataset],
-                      'clip_max': CLIP_MAX[dataset]}
-        adv_x = ead.generate(x, **ead_params)
-
-        X_adv, = batch_eval(
-            sess, [x, y], [adv_x],
-            [X, Y], batch_size=batch_size, feed={})
-
-    elif attack == 'cw-li':
-        # C&W Li attack
-        print('Crafting %s adversarial samples...' % attack)
-        cw_li = LinfPGDAttack(keras_model,
-                               epsilon=SETTING[dataset]['eps'],
-                               eps_iter=SETTING[dataset]['eps_iter'] * 2,  # TODO: PGD need larger eps_iter
-                               nb_iter=SETTING[dataset]['nb_iter'],
-                               kappa=confidence,
-                               random_start=False,
-                               loss_func='cw',
-                               clip_min=CLIP_MIN[dataset],
-                               clip_max=CLIP_MAX[dataset])
-        X_adv = cw_li.perturb(sess, X, Y, batch_size=batch_size)
-
-    elif attack == 'cw-l2':
-        # C&W L2 attack
-        print('Crafting %s examples. This may take > 5 hours' % attack)
-        # CarliniWagnerL2, attack the logits layer
-        cw_l2 = CarliniWagnerL2(model, sess=sess)
-        cw_l2_params = {'batch_size': batch_size,
-                        'confidence': confidence,
-                        'learning_rate': 1e-2,
-                        'binary_search_steps': 9,
-                        'max_iterations': 1000,
-                        'abort_early': False,
-                        'initial_const': 1e-2,
-                        'clip_min': CLIP_MIN[dataset],
-                        'clip_max': CLIP_MAX[dataset]}
-        adv_x = cw_l2.generate(x, **cw_l2_params)
-
-        nx = X.shape[0]
-        pad = (batch_size - nx % batch_size) % batch_size
-        X = np.concatenate([X, X[:pad]])
-        Y = np.concatenate([Y, Y[:pad]])
-        X_adv, = batch_eval(
-            sess, [x, y], [adv_x],
-            [X, Y], batch_size=batch_size, feed={})
-        # X_adv = X
-        if pad>0:
-            X_adv = X_adv[:-pad]
-
-    elif attack == 'cw-lid':
-        # This is our own attack - a variant of C&W to break LID detector
-        # attack the logits layer
-        print('Crafting %s examples. This takes > 5 hours due to internal grid search' % attack)
-        image_size = SETTING[dataset]['image_size']
-        num_channels = SETTING[dataset]['num_channels']
-        num_labels = SETTING[dataset]['num_labels']
-        cw_attack = CarliniLID(sess, model.layers[-2].output, image_size,
-                               num_channels, num_labels, batch_size=batch_size)
-        X_adv = cw_attack.attack(X, Y)
-
-    return X_adv
 
 def main(args):
     assert args.dataset in ['mnist', 'cifar-10', 'svhn', 'dr', 'cxr', 'derm', 'imagenet'], \
         "Dataset parameter must be either 'mnist', 'cifar-10', 'svhn', 'dr', 'cxr', or 'derm'"
-    assert args.attack in ['fgsm', 'bim', 'jsma', 'deepfool', 'pgd', 'ead', 'cw-li', 'cw-l2', 'cw-lid'], \
+    assert args.attack in ['fgsm', 'bim', 'jsma', 'deepfool', 'pgd', 'ead', 'cw-l2', 'cw-lid'], \
         "Attack parameter must be either 'fgsm', 'bim', 'jsma', 'deepfool', " \
         "'pgd', 'ead', 'cw-l2', 'cw-lid'"
 
@@ -246,33 +85,16 @@ def main(args):
     sess = tf.Session()
     K.set_session(sess)
 
-    if args.attack in ['ead', 'cw-lid', 'cw-li']:
-        model = get_model(args.dataset, softmax=False)
-    else:
-        model = get_model(args.dataset, softmax=True)
-    model.load_weights(weights_file)
-    model.compile(
-        loss='categorical_crossentropy',
-        optimizer='sgd',
-        metrics=['accuracy']
-    )
-    keras_model = model
 
-    # wrap the model into KerasModelWrapper to be usable by cleverhans
-    model = KerasModelWrapper(model)
-
-
-    # Craft one specific attack type
-    X_adv = craft_one_type(sess, model, X_test, Y_test, args.dataset,
-                           args.attack, args.confidence, args.batch_size, keras_model)
+    # Load one specific attack type
     if args.attack in ['cw-l2', 'cw-li', 'cw-lid']:
         save_file = 'data/' + ADV_PREFIX + 'Adv_%s_%s%s_%s.npy' % (args.dataset, args.attack,
                                                                    '_bb' if args.blackbox else '', args.confidence)
     else:
         save_file = 'data/' + ADV_PREFIX + 'Adv_%s_%s%s.npy' % (args.dataset, args.attack,
                                                                 '_bb' if args.blackbox else '')
-    np.save(save_file, X_adv)
-    print('Adversarial samples crafted and saved to %s ' % save_file)
+    X_adv = np.load(save_file)
+    print('Adversarial samples loaded from %s ' % save_file)
     log = '%40s:' % save_file
 
     # evaluate the attacks and model
@@ -287,8 +109,11 @@ def main(args):
     y_pred = model.predict_classes(X_test, verbose=1, batch_size=args.batch_size)
     y_true = Y_test.argmax(-1)
     acc = sklearn.metrics.accuracy_score(y_true, y_pred)
+    auroc = sklearn.metrics.roc_auc_score(y_true, y_pred)
     print("Accuracy on clean test set: %0.2f%%" % (100*acc))
     log += '\t' + "Accuracy on clean test set: %0.2f%%" % (100*acc)
+    print('AUROC on clean: %0.4f' % auroc)
+    log += '\t' + 'AUROC on clean: %0.4f' % auroc
 
     # statistics of the attacks
     idx_correct, = np.where(y_pred == y_true)

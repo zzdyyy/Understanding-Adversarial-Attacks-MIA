@@ -10,14 +10,16 @@ import numpy as np
 import sklearn.metrics
 from sklearn.model_selection import StratifiedShuffleSplit, StratifiedKFold, train_test_split
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve
 from sklearn.ensemble import RandomForestClassifier
 import matplotlib.pyplot as plt
+from global_config import *
 
 DATASETS = ['dr', 'cxr', 'derm']
 ATTACKS = ['fgsm', 'bim', 'jsma', 'cw-l2', 'clean']
-TEST_SIZE = {'dr': 0.7, 'cxr': 0.7, 'derm': 0.5}
+TEST_SIZE = {'dr': 0.2, 'cxr': 0.2, 'derm': 0.2}
 
 def balance_data(X, y, sub_sample=False):  # assume that the positive samples is less than negative ones
     idx_pos, = np.where(y>0)
@@ -33,7 +35,8 @@ def balance_data(X, y, sub_sample=False):  # assume that the positive samples is
 def detect(args):
     assert args.dataset in ['mnist', 'cifar-10', 'svhn', 'dr', 'cxr', 'derm'], \
         "Dataset parameter must be either 'mnist', 'cifar-10', 'svhn', 'dr', 'cxr', or 'derm'"
-    assert args.attack in ['fgsm', 'bim', 'jsma', 'deepfool', 'pgd', 'ead', 'cw-l2', 'cw-lid'], \
+    assert args.attack in ['fgsm', 'bim', 'jsma', 'deepfool', 'pgd', 'ead', 'cw-l2', 'cw-lid', 'cw-li',
+                           'fgsm_bb', 'bim_bb', 'jsma_bb', 'deepfool_bb', 'pgd_bb', 'ead_bb', 'cw-l2_bb', 'cw-lid_bb', 'cw-li_bb',], \
         "Attack parameter must be either 'fgsm', 'bim', 'jsma', 'deepfool', " \
         "'pgd', 'ead', 'cw-l2', 'cw-lid'"
 
@@ -45,6 +48,7 @@ def detect(args):
     cX_test, cy_test = balance_data(cX_test, cy_test)  # balance over positive/negative examples
     aX_test, ay_test = balance_data(aX_test, ay_test)  # balance over positive/negative examples
     X = np.concatenate([cX_test, aX_test])
+    label = np.concatenate([cy_test, ay_test + 2])  # 0: clean neg, 1: clean pos, 2: adv_neg, 3: adv pos
     y = np.concatenate([np.zeros(len(cX_test)), np.ones(len(aX_test))])
 
     # # load testing data
@@ -65,21 +69,40 @@ def detect(args):
     #       (len(y), len(idx_pos), len(idx_pos), len(idx_neg_resample), len(idx_neg_resample2)))
 
     # do PCA
-    do_pca = True
-    if do_pca:
-        pca = PCA(20, True)
-        X_pca = pca.fit_transform(X)
-        print('PCA explanation of variances:', (pca.explained_variance_ratio_))
-        plt.scatter(X_pca[y<1, 0], X_pca[y<1, 1])
-        plt.scatter(X_pca[y>0, 0], X_pca[y>0, 1])
+    dec_method = None #'tSNE'
+    if dec_method:
+        decomposer = PCA(20, True) if dec_method == 'PCA' else TSNE(learning_rate=100)
+        X_dec = decomposer.fit_transform(X)
+        if dec_method == 'PCA':
+            print('PCA explanation of variances:', (decomposer.explained_variance_ratio_))
+        # plt.scatter(X_pca[y<1, 0], X_pca[y<1, 1])
+        # plt.scatter(X_pca[y>0, 0], X_pca[y>0, 1])
+        plt.scatter(X_dec[label == 0, 0], X_dec[label == 0, 1], s=9, label='Clean Negative')
+        plt.scatter(X_dec[label == 1, 0], X_dec[label == 1, 1], s=9, label='Clean Positive')
+        plt.scatter(X_dec[label == 2, 0], X_dec[label == 2, 1], s=9, label='Adversarial Negative')
+        plt.scatter(X_dec[label == 3, 0], X_dec[label == 3, 1], s=9, label='Adversarial Positive')
+        plt.legend(prop={'weight': 'bold', 'size': 15}, loc='upper left')
         plt.show()
 
     # train-test split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE[args.dataset])
-    clf = SVC(gamma=2.8, probability=True)  # RandomForestClassifier(30)  # SVC(gamma=2.8, probability=True)
-    clf.fit(X_train, y_train)
-    print('Acc:', accuracy_score(y_test, clf.predict(X_test)))
-    print('AUC:', roc_auc_score(y_test, clf.predict_proba(X_test)[:, 1]))
+    accs = []
+    aucs = []
+    for i in range(3):
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE[args.dataset])
+        clf = RandomForestClassifier(30)  # SVC(gamma=2.8, probability=True)
+        clf.fit(X_train, y_train)
+        acc = accuracy_score(y_test, clf.predict(X_test))
+        auc = roc_auc_score(y_test, clf.predict_proba(X_test)[:, 1])
+        print('Acc:', acc)
+        print('AUC:', auc)
+        accs.append(acc)
+        aucs.append(auc)
+    log = 'Dataset: %5s, Attack: %10s, Acc: %.4f, AUC: %.4f, Accs: %s, AUCs: %s \n' % \
+          (args.dataset, args.attack, np.mean(accs), np.mean(aucs), str(accs), str(aucs))
+    print(log)
+    with open('log/detect_hiddenfeat.log', 'a') as f:
+        f.write(log)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -98,8 +121,8 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     # detect(args)
 
-    for ds in ['derm', 'dr', 'cxr']:
-        for atk in ['fgsm', 'bim', 'pgd']:
+    for ds in ['dr', 'cxr', 'derm']:
+        for atk in ['cw-li']:  #''fgsm', 'bim', 'deepfool', 'pgd']:
             argv = ['-d', ds, '-a', atk]
             print('\n$> ', argv)
             args = parser.parse_args(argv)

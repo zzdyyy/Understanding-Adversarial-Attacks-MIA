@@ -107,12 +107,12 @@ if __name__ == "__main__":
     )
     parser.set_defaults(epochs=100)
     parser.set_defaults(batch_size=128)
-    # args = parser.parse_args()
-    # main(args)
-
-    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
-
-    args = parser.parse_args(['-d', 'cifar-10', '-e', '100', '-b', '128'])
+    args = parser.parse_args()
     main(args)
+
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    #
+    # args = parser.parse_args(['-d', 'cifar-10', '-e', '100', '-b', '128'])
+    # main(args)
 
     K.clear_session()

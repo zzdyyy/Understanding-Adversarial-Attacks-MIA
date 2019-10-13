@@ -22,6 +22,13 @@ def get_model(dataset='cifar-10', softmax=True):
     """
     These models are those used in Madry's and Samuel G. Finlayson's paper.
     """
+    if dataset == 'imagenet':
+        model = keras.applications.resnet50.ResNet50(include_top=True)
+        def predict_classes(x, batch_size=32, verbose=0):
+            return model.predict(x, batch_size=batch_size, verbose=verbose).argmax(axis=-1)
+        model.predict_classes = predict_classes  # add a useful function
+        return model
+
     if dataset in ['dr', 'cxr', 'derm']:
         model = keras.models.load_model("model/model_%s.h5" % dataset)
 
