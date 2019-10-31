@@ -2,7 +2,7 @@
 # train_model.py
 # By: Samuel Finlayson
 # 
-# Trains a Resnet or InceptionV3 model for binary image classification
+# Trains a Resnet or InceptionV3 model for binary/multi-class image classification
 # For details, see: python train_model.py --help
 #
 # This file assumes that data for the classifier is stored per the structure in load_data.
@@ -21,18 +21,19 @@ import os
 import sys
 import argparse
 import numpy as np
-
+import time
+n_class = 10
 
 def load_data(batch_size, mixup, vFlip, rotation):
     from keras.preprocessing.image import ImageDataGenerator
     from keras.applications.inception_resnet_v2 import preprocess_input
 
     train_datagen = ImageDataGenerator(
-            shear_range=0.2,
+            shear_range=0.1,
             zoom_range=0.2,
             rotation_range=rotation,
-            width_shift_range = 0.2,
-            height_shift_range = 0.2,
+            width_shift_range = 0.1,
+            height_shift_range = 0.1,
             preprocessing_function=preprocess_input,
             horizontal_flip=True,
             vertical_flip=vFlip)
@@ -43,24 +44,21 @@ def load_data(batch_size, mixup, vFlip, rotation):
     if mixup:
         X_train = np.load('data/val_train_x.npy') # N x 224 x 224 x 3
         y_train = np.load('data/val_train_y.npy') 
-        X_test = np.load('data/val_test_x.npy') # N x 2
+        X_test = np.load('data/val_test_x.npy') # N x c
         y_test = np.load('data/val_test_y.npy')
         from mixup_generator import MixupGenerator
         train_generator = MixupGenerator(X_train, y_train, batch_size=batch_size, alpha=0.2, datagen=train_datagen)()
         validation_generator = test_datagen.flow(X_test, y_test, batch_size=batch_size)
     else:
-        train_generator = train_datagen.flow_from_directory(
-            'images/train',
-            target_size=(224, 224),
-            batch_size=batch_size,
-            class_mode='categorical',
-            shuffle=True)
-        validation_generator = test_datagen.flow_from_directory(
-            'images/val',
-            target_size=(224, 224),
-            batch_size=batch_size,
-            class_mode='categorical',
-            shuffle=True)
+        data_dir = '/home/nyh/cxr_mc/saved/'
+        X_train = np.load(data_dir + 'train_x.npy')  # N x 224 x 224 x 3
+        y_train = np.load(data_dir + 'train_y.npy')  # N x c
+        X_val = np.load(data_dir + 'val_x.npy')
+        y_val = np.load(data_dir + 'val_y.npy')
+        X_train = np.tile(X_train, [1, 1, 1, 3]).astype('float32')
+        X_val = np.tile(X_val, [1, 1, 1, 3]).astype('float32')
+        train_generator = train_datagen.flow(X_train, y_train, batch_size=batch_size, shuffle=True)
+        validation_generator = test_datagen.flow(X_val, y_val, batch_size=batch_size, shuffle=True)
 
     if mixup:
         n_data = (X_train.shape[0], X_test.shape[0])
@@ -87,7 +85,7 @@ def construct_model(inceptionModel, batch_size, LR, freezeEarlyLayers = False):
     # Finetune Layer
     fine_tune_layer = Dense(128)(outputs)
     fine_tune_layer = Dropout(0.2)(fine_tune_layer) #usually .2
-    fine_tune_layer = Dense(2, activation='softmax')(fine_tune_layer)
+    fine_tune_layer = Dense(n_class, activation='softmax')(fine_tune_layer)
 
     # Final Model
     model = Model(inputs=base_model.input, outputs=fine_tune_layer)
@@ -111,7 +109,7 @@ def generateCallbacks(inceptionModel, nameAppend, LR, modelChecking, modelCheckp
         runId = "InceptionV3"
     else:
         runId = "ResNet50"
-    runId += "_" + nameAppend
+    runId += "_" + nameAppend + time.strftime('%m.%d_%H.%M')
     runId += '_LearnRate-' + str(LR)
 
     tb_dir0 = "./keras_logs/" + runId + "_upfront"
