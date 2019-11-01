@@ -39,30 +39,25 @@ import keras.utils
 class_n = 10
 train_x = []
 train_y = []
-test_x = []
-test_y = []
 val_x = []
 val_y = []
 for i, dname in enumerate(disease_list.index[:class_n]):
     print(dname)
     print('reading npy ...')
     image_data = np.load(save_dir + dname + '.npy')
+    if dname == 'No Finding':
+        image_data = image_data[:10000]
     n_image = image_data.shape[0]
     n_test = (n_image//8)
-    n_val = 50
-    n_train = 3000
-    test_x.append(image_data[-n_test:])
-    test_y.append(keras.utils.to_categorical([i]*n_test, class_n))
+    n_val = (n_image-n_test)//30
+    n_train = n_image - n_test - n_val
     val_x.append(image_data[-(n_test+n_val):-n_test])
     val_y.append(keras.utils.to_categorical([i]*n_val, class_n))
-    train_x.append(image_data[
-        np.random.choice(range(0, n_image-(n_test+n_val)),n_train)
-    ])
+    train_x.append(image_data[:n_train])
     train_y.append(keras.utils.to_categorical([i]*n_train, class_n))
 print('concatenating...')
-np.save(save_dir + 'train_x.npy', np.concatenate(train_x))
-np.save(save_dir + 'train_y.npy', np.concatenate(train_y))
-np.save(save_dir + 'val_x.npy', np.concatenate(val_x))
-np.save(save_dir + 'val_y.npy', np.concatenate(val_y))
-np.save(save_dir + 'test_x.npy', np.concatenate(test_x))
-np.save(save_dir + 'test_y.npy', np.concatenate(test_y))
+np.save(save_dir + 'wp_train_x.npy', np.concatenate(train_x))
+np.save(save_dir + 'wp_train_y.npy', np.concatenate(train_y))
+np.save(save_dir + 'wp_val_x.npy', np.concatenate(val_x))
+np.save(save_dir + 'wp_val_y.npy', np.concatenate(val_y))
+

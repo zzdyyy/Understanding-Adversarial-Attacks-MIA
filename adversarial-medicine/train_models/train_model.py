@@ -51,13 +51,14 @@ def load_data(batch_size, mixup, vFlip, rotation):
         validation_generator = test_datagen.flow(X_test, y_test, batch_size=batch_size)
     else:
         data_dir = '/home/nyh/cxr_mc/saved/'
-        X_train = np.load(data_dir + 'train_x.npy')  # N x 224 x 224 x 3
-        y_train = np.load(data_dir + 'train_y.npy')  # N x c
-        X_val = np.load(data_dir + 'val_x.npy')
-        y_val = np.load(data_dir + 'val_y.npy')
+        X_train = np.load(data_dir + 'wp_train_x.npy')  # N x 224 x 224 x 3
+        y_train = np.load(data_dir + 'wp_train_y.npy')  # N x c
+        X_val = np.load(data_dir + 'wp_val_x.npy')
+        y_val = np.load(data_dir + 'wp_val_y.npy')
         X_train = np.tile(X_train, [1, 1, 1, 3]).astype('float32')
         X_val = np.tile(X_val, [1, 1, 1, 3]).astype('float32')
-        train_generator = train_datagen.flow(X_train, y_train, batch_size=batch_size, shuffle=True)
+        sample_weights = y_train @ (len(y_train)/np.sum(y_train, axis=0)) / n_class
+        train_generator = train_datagen.flow(X_train, y_train, batch_size=batch_size, shuffle=True, sample_weight=sample_weights)
         validation_generator = test_datagen.flow(X_val, y_val, batch_size=batch_size, shuffle=True)
 
     if mixup:
