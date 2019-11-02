@@ -36,7 +36,7 @@ def proc(disease_name):
 #         e.submit(proc, dname)
 
 import keras.utils
-class_n = 10
+class_n = 5
 train_x = []
 train_y = []
 val_x = []
@@ -56,8 +56,8 @@ for i, dname in enumerate(disease_list.index[:class_n]):
     train_x.append(image_data[:n_train])
     train_y.append(keras.utils.to_categorical([i]*n_train, class_n))
 print('concatenating...')
-np.save(save_dir + 'wp_train_x.npy', np.concatenate(train_x))
-np.save(save_dir + 'wp_train_y.npy', np.concatenate(train_y))
-np.save(save_dir + 'wp_val_x.npy', np.concatenate(val_x))
-np.save(save_dir + 'wp_val_y.npy', np.concatenate(val_y))
+np.save(save_dir + 'wp5_train_x.npy', np.concatenate(train_x))
+np.save(save_dir + 'wp5_train_y.npy', np.concatenate(train_y))
+np.save(save_dir + 'wp5_val_x.npy', np.concatenate(val_x))
+np.save(save_dir + 'wp5_val_y.npy', np.concatenate(val_y))
 

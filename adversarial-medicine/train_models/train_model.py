@@ -22,7 +22,8 @@ import sys
 import argparse
 import numpy as np
 import time
-n_class = 10
+import shutil
+n_class = 5
 
 def load_data(batch_size, mixup, vFlip, rotation):
     from keras.preprocessing.image import ImageDataGenerator
@@ -51,10 +52,10 @@ def load_data(batch_size, mixup, vFlip, rotation):
         validation_generator = test_datagen.flow(X_test, y_test, batch_size=batch_size)
     else:
         data_dir = '/home/nyh/cxr_mc/saved/'
-        X_train = np.load(data_dir + 'wp_train_x.npy')  # N x 224 x 224 x 3
-        y_train = np.load(data_dir + 'wp_train_y.npy')  # N x c
-        X_val = np.load(data_dir + 'wp_val_x.npy')
-        y_val = np.load(data_dir + 'wp_val_y.npy')
+        X_train = np.load(data_dir + 'wp5_train_x.npy')  # N x 224 x 224 x 3
+        y_train = np.load(data_dir + 'wp5_train_y.npy')  # N x c
+        X_val = np.load(data_dir + 'wp5_val_x.npy')
+        y_val = np.load(data_dir + 'wp5_val_y.npy')
         X_train = np.tile(X_train, [1, 1, 1, 3]).astype('float32')
         X_val = np.tile(X_val, [1, 1, 1, 3]).astype('float32')
         sample_weights = y_train @ (len(y_train)/np.sum(y_train, axis=0)) / n_class
@@ -120,8 +121,12 @@ def generateCallbacks(inceptionModel, nameAppend, LR, modelChecking, modelCheckp
     if not os.path.exists(tb_dir1):
         os.makedirs(tb_dir1)
 
+    shutil.copyfile('train_model.py', tb_dir0+'/train_model.py')
+    with open(tb_dir0+'/cmd.txt', 'w') as file:
+        file.write(str(sys.argv))
+
     # Tensorboard Callback
-    
+
     callBackList = []
     tbCallBack0 = callbacks.TensorBoard(log_dir=tb_dir0, histogram_freq=0,
                                              write_graph=False, write_images=False)
@@ -136,12 +141,12 @@ def generateCallbacks(inceptionModel, nameAppend, LR, modelChecking, modelCheckp
                                                     save_best_only=True, save_weights_only=True,
                                                     mode='auto', period=modelCheckpointPeriod)
         callBackList += [modelCheck]
-        
+
     # Early Stopping Callback
     if earlyStopping:
         earlyStop = callbacks.EarlyStopping(monitor='val_acc', min_delta=0, patience=earlyStopPatience,
                                                   verbose=0, mode='auto')
-        
+
         callBackList += [earlyStop]
 
     return ([tbCallBack0], callBackList)
@@ -175,7 +180,7 @@ if __name__ == '__main__':
     # Set up argparser
     parser = argparse.ArgumentParser(description='Train ResNet50 or InceptionResNetV2 Model')
     parser.add_argument("--incept", action='store_true', default=False, help="Train Inception Model, else train ResNet model (default: False)")
-    parser.add_argument('--lr', type=float, default = 1e-3, help = "Learning rate (default: 1e-3)")
+    parser.add_argument('--lr', type=float, default = 1e-4, help = "Learning rate (default: 1e-3)")
     parser.add_argument('--max_epochs', type=int, default = 300, help = "Max number epochs for which to train. (default: 300)")
     parser.add_argument("--model_checkpointing", type=int, default=10, help="Save best model checkpoints with period N.  Negative value = no checkpointing. (default: 10)")
     parser.add_argument("--early_stopping", type=int, default=100, help="Apply early stopping with patience N. Negative value = no early stopping (default: 100)")
