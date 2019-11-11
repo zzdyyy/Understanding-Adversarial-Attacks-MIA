@@ -23,6 +23,7 @@ import argparse
 import numpy as np
 import time
 import shutil
+import keras
 n_class = 3
 
 def load_data(batch_size, mixup, vFlip, rotation):
@@ -206,43 +207,41 @@ if __name__ == '__main__':
     vFlip = args.vFlip
     rotation = args.rotation
 
-    # Set CUDA Device Using Flag
-    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" 
-    if args.gpu1:
-        os.environ["CUDA_VISIBLE_DEVICES"]="1"
-    else:
-        os.environ["CUDA_VISIBLE_DEVICES"]="0"
+    # # Set CUDA Device Using Flag
+    # os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    # if args.gpu1:
+    #     os.environ["CUDA_VISIBLE_DEVICES"]="1"
+    # else:
+    #     os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
-    # Handle checkpointing and early stopping
-    modelChecking = (modelCheckpointPeriod >= 0)
-    if modelChecking:
-        print("Checkpointing models with period ", modelCheckpointPeriod)
-    earlyStopping = (earlyStopPatience >= 0)
-    if earlyStopping:
-        print("Applying early stopping with patience ", earlyStopPatience)
-    if not (modelChecking or earlyStopping):
-        n_epoch_beforeSaving = 0
-    else:
-        print("Waiting ", n_epoch_beforeSaving, " epochs before starting checkpointing and/or saving.")
+    # # Handle checkpointing and early stopping
+    # modelChecking = (modelCheckpointPeriod >= 0)
+    # if modelChecking:
+    #     print("Checkpointing models with period ", modelCheckpointPeriod)
+    # earlyStopping = (earlyStopPatience >= 0)
+    # if earlyStopping:
+    #     print("Applying early stopping with patience ", earlyStopPatience)
+    # if not (modelChecking or earlyStopping):
+    #     n_epoch_beforeSaving = 0
+    # else:
+    #     print("Waiting ", n_epoch_beforeSaving, " epochs before starting checkpointing and/or saving.")
 
-    # Get Model Type
-    if inceptionModel:
-        print("Using InceptionV3architecture")
-        model_name = "models/InceptionV3"
-    else:
-        print("Using ResNet50 architecture")
-        model_name = "models/ResNet50"
-    if nameAppend != "":
-        model_name += "_" + nameAppend 
-    model_name += "_LR-" + str(LR) + "_max_epochs-" + str(max_epochs) + '_weights_final.hdf5'
-    print("filename for save weights: ", model_name)
-    print("\n")
-    from tensorflow.python.client import device_lib
-    print(device_lib.list_local_devices())
+    # # Get Model Type
+    # if inceptionModel:
+    #     print("Using InceptionV3architecture")
+    #     model_name = "models/InceptionV3"
+    # else:
+    #     print("Using ResNet50 architecture")
+    #     model_name = "models/ResNet50"
+    # if nameAppend != "":
+    #     model_name += "_" + nameAppend
+    # model_name += "_LR-" + str(LR) + "_max_epochs-" + str(max_epochs) + '_weights_final.hdf5'
+    # print("filename for save weights: ", model_name)
+    # print("\n")
+    # from tensorflow.python.client import device_lib
+    # print(device_lib.list_local_devices())
 
     # Train the model
-    train_generator, validation_generator, n_data = load_data(batch_size, mixup, vFlip, rotation)
     model = construct_model(inceptionModel, batch_size, LR)
-    callbacks = generateCallbacks(inceptionModel, nameAppend, LR, modelChecking, modelCheckpointPeriod, earlyStopping, earlyStopPatience)
-    model = fit_model(model, callbacks, train_generator, validation_generator, n_data, batch_size, max_epochs, n_epoch_beforeSaving)
-    model.save_weights(model_name)
+    model.load_weights('models/ResNet50_11.05_10.19.50_LearnRate-0.0001_weights.epoch-10-val_acc-0.9147.hdf5')
+    keras.models.save_model(model, '../../model/model_cxr056.h5')

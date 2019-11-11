@@ -1,3 +1,5 @@
+"""NIH Chest X-ray dataset, multi-classification pre-processing (train/test split)"""
+
 import pandas as pd
 import numpy as np
 import cv2
@@ -36,28 +38,33 @@ def proc(disease_name):
 #         e.submit(proc, dname)
 
 import keras.utils
-class_n = 5
+class_n = 3
 train_x = []
 train_y = []
+test_x = []
+test_y = []
 val_x = []
 val_y = []
-for i, dname in enumerate(disease_list.index[:class_n]):
+for i, dname in enumerate([disease_list.index[i] for i in (0,5,6)]):
     print(dname)
     print('reading npy ...')
     image_data = np.load(save_dir + dname + '.npy')
-    if dname == 'No Finding':
-        image_data = image_data[:10000]
     n_image = image_data.shape[0]
     n_test = (n_image//8)
     n_val = (n_image-n_test)//30
     n_train = n_image - n_test - n_val
+    test_x.append(image_data[-(n_test+n_val):])
+    test_y.append(keras.utils.to_categorical([i] * (n_test+n_val), class_n))
     val_x.append(image_data[-(n_test+n_val):-n_test])
     val_y.append(keras.utils.to_categorical([i]*n_val, class_n))
     train_x.append(image_data[:n_train])
     train_y.append(keras.utils.to_categorical([i]*n_train, class_n))
+
 print('concatenating...')
-np.save(save_dir + 'wp5_train_x.npy', np.concatenate(train_x))
-np.save(save_dir + 'wp5_train_y.npy', np.concatenate(train_y))
-np.save(save_dir + 'wp5_val_x.npy', np.concatenate(val_x))
-np.save(save_dir + 'wp5_val_y.npy', np.concatenate(val_y))
+np.save(save_dir + 'ub3_056_train_x.npy', np.concatenate(train_x))
+np.save(save_dir + 'ub3_056_train_y.npy', np.concatenate(train_y))
+np.save(save_dir + 'ub3_056_val_x.npy', np.concatenate(val_x))
+np.save(save_dir + 'ub3_056_val_y.npy', np.concatenate(val_y))
+np.save(save_dir + 'ub3_056_test_x.npy', np.concatenate(val_x))
+np.save(save_dir + 'ub3_056_test_y.npy', np.concatenate(val_y))
 
