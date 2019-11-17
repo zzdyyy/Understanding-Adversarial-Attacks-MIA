@@ -24,7 +24,7 @@ import numpy as np
 import time
 import shutil
 import keras
-n_class = 3
+n_class = 4
 
 def load_data(batch_size, mixup, vFlip, rotation):
     from keras.preprocessing.image import ImageDataGenerator
@@ -243,5 +243,5 @@ if __name__ == '__main__':
 
     # Train the model
     model = construct_model(inceptionModel, batch_size, LR)
-    model.load_weights('models/ResNet50_11.05_10.19.50_LearnRate-0.0001_weights.epoch-10-val_acc-0.9147.hdf5')
-    keras.models.save_model(model, '../../model/model_cxr056.h5')
+    model.load_weights('models/cxr0456.hdf5')
+    keras.models.save_model(model, '../../model/model_cxr0456.h5')

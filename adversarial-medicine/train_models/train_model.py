@@ -103,8 +103,10 @@ def construct_model(inceptionModel, batch_size, LR, freezeEarlyLayers = False):
 
     return model
 
+runId = ''
 def generateCallbacks(inceptionModel, nameAppend, LR, modelChecking, modelCheckpointPeriod, earlyStopping, earlyStopPatience):
     from keras import callbacks
+    global runId
 
     # Construct TB Directory
     if inceptionModel:
@@ -225,18 +227,11 @@ if __name__ == '__main__':
     else:
         print("Waiting ", n_epoch_beforeSaving, " epochs before starting checkpointing and/or saving.")
 
-    # Get Model Type
     if inceptionModel:
         print("Using InceptionV3architecture")
-        model_name = "models/InceptionV3"
     else:
         print("Using ResNet50 architecture")
-        model_name = "models/ResNet50"
-    if nameAppend != "":
-        model_name += "_" + nameAppend 
-    model_name += "_LR-" + str(LR) + "_max_epochs-" + str(max_epochs) + '_weights_final.hdf5'
-    print("filename for save weights: ", model_name)
-    print("\n")
+
     from tensorflow.python.client import device_lib
     print(device_lib.list_local_devices())
 
@@ -245,4 +240,10 @@ if __name__ == '__main__':
     model = construct_model(inceptionModel, batch_size, LR)
     callbacks = generateCallbacks(inceptionModel, nameAppend, LR, modelChecking, modelCheckpointPeriod, earlyStopping, earlyStopPatience)
     model = fit_model(model, callbacks, train_generator, validation_generator, n_data, batch_size, max_epochs, n_epoch_beforeSaving)
+
+    model_name = "models/" + runId
+    if nameAppend != "":
+        model_name += "_" + nameAppend
+    model_name += "_LR-" + str(LR) + "_max_epochs-" + str(max_epochs) + '_weights_final.hdf5'
+    print("filename for save weights: ", model_name)
     model.save_weights(model_name)
