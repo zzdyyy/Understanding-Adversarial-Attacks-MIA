@@ -51,11 +51,13 @@ def get_data(dataset='mnist', clip_min=-0.5, clip_max=0.5, onehot=True, path='da
         Y = keras.utils.to_categorical([281, 281, 281, 250, 250, 281, 281, 250, 281, 281, 250, 281, 250], 1000)
         return X[:0], Y[:0], X, Y
 
-    if dataset in ['dr', 'cxr', 'derm']:
+    if dataset in ['dr', 'cxr', 'derm', 'cxr056', 'cxr0456', 'cxr05']:
         if load_feat is not None:
             X_all = np.load('data/' + ADV_PREFIX + 'feat_%s_%s.npy' % (dataset, load_feat))
         else:
             X_all = np.load('adversarial_medicine/numpy_to_share/%s/val_test_x.npy' % dataset).astype('float32')
+            if X_all.shape[-1] == 1:
+                X_all = np.repeat(X_all, 3, axis=-1)
             keras.applications.inception_resnet_v2.preprocess_input(X_all)  # transform value range to [-1, 1]
         Y_all = np.load('adversarial_medicine/numpy_to_share/%s/val_test_y.npy' % dataset)
         if not onehot:

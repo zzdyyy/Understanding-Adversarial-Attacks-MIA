@@ -29,13 +29,13 @@ def get_model(dataset='cifar-10', softmax=True):
         model.predict_classes = predict_classes  # add a useful function
         return model
 
-    if dataset in ['dr', 'cxr', 'derm']:
+    if dataset in ['dr', 'cxr', 'derm', 'cxr056', 'cxr0456', 'cxr05']:
         model = keras.models.load_model("model/model_%s.h5" % dataset)
 
         if not softmax:  # if don't need softmax activation
             old_model = model
             old_softmax = old_model.layers[-1]
-            new_dense = Dense(2,
+            new_dense = Dense(old_softmax.output.shape[-1],
                               kernel_initializer=keras.initializers.Constant(old_softmax.weights[0].eval(K.get_session())),
                               bias_initializer=keras.initializers.Constant(old_softmax.weights[1].eval(K.get_session())),
                               name='dense_nosoftmax')

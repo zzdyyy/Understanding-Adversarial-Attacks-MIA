@@ -43,12 +43,15 @@ SETTING = {
              'num_channels': 3, 'num_labels': 10},
     'dr':   {'eps': eps['dr'],   'eps_iter': eps['dr']/20,   'nb_iter': 20, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},  # TODO: not determined
     'cxr':  {'eps': eps['cxr'],  'eps_iter': eps['cxr']/20,  'nb_iter': 20, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},
+    'cxr056': {'eps': eps['cxr'],  'eps_iter': eps['cxr']/20,  'nb_iter': 20, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},
+    'cxr0456':{'eps': eps['cxr'],  'eps_iter': eps['cxr']/20,  'nb_iter': 20, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},
+    'cxr05':  {'eps': eps['cxr'],  'eps_iter': eps['cxr']/20,  'nb_iter': 20, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},
     'derm': {'eps': eps['derm'], 'eps_iter': eps['derm']/20, 'nb_iter': 20, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},
     'imagenet': {'eps': eps['derm'], 'eps_iter': eps['derm']/20, 'nb_iter': 20, 'theta': 1., 'gamma': 0.145, 'image_size': 224, 'num_channels': 3, 'num_labels': 2},
 }  # eps_iter is for BIM, and it will be doubled before applying deepfool
 
-CLIP_MIN = {'mnist': -0.5, 'cifar': -0.5, 'svhn': -0.5, 'dr': -1.0, 'cxr': -1.0, 'derm': -1.0, 'imagenet':-128.0}
-CLIP_MAX = {'mnist':  0.5, 'cifar':  0.5, 'svhn':  0.5, 'dr':  1.0, 'cxr':  1.0, 'derm':  1.0, 'imagenet':128.0}
+CLIP_MIN = {'mnist': -0.5, 'cifar': -0.5, 'svhn': -0.5, 'dr': -1.0, 'cxr': -1.0, 'cxr056': -1.0, 'cxr0456': -1.0, 'cxr05': -1.0, 'derm': -1.0, 'imagenet':-128.0}
+CLIP_MAX = {'mnist':  0.5, 'cifar':  0.5, 'svhn':  0.5, 'dr':  1.0, 'cxr':  1.0, 'cxr056':  1.0, 'cxr0456':  1.0, 'cxr05':  1.0, 'derm':  1.0, 'imagenet': 128.0}
 
 def craft_one_type(sess, model, X, Y, dataset, attack, confidence, batch_size, keras_model):
     """
@@ -77,6 +80,7 @@ def craft_one_type(sess, model, X, Y, dataset, attack, confidence, batch_size, k
         adv_x = fgsm.generate(x, **fgsm_params)
 
         print(x.shape)
+        print(y.shape)
         X_adv, = batch_eval(
             sess, [x, y], [adv_x],
             [X, Y], batch_size=batch_size, feed={})
@@ -214,11 +218,10 @@ def craft_one_type(sess, model, X, Y, dataset, attack, confidence, batch_size, k
     return X_adv
 
 def main(args):
-    assert args.dataset in ['mnist', 'cifar-10', 'svhn', 'dr', 'cxr', 'derm', 'imagenet'], \
-        "Dataset parameter must be either 'mnist', 'cifar-10', 'svhn', 'dr', 'cxr', or 'derm'"
+    assert args.dataset in ['mnist', 'cifar-10', 'svhn', 'dr', 'cxr', 'derm', 'imagenet', 'cxr', 'cxr056', 'cxr0456', 'cxr05'], \
+        "Dataset parameter not known"
     assert args.attack in ['fgsm', 'bim', 'jsma', 'deepfool', 'pgd', 'ead', 'cw-li', 'cw-l2', 'cw-lid'], \
-        "Attack parameter must be either 'fgsm', 'bim', 'jsma', 'deepfool', " \
-        "'pgd', 'ead', 'cw-l2', 'cw-lid'"
+        "Attack parameter not known"
 
     if args.epsilon:
         SETTING[args.dataset]['eps'] = args.epsilon/255*(CLIP_MAX[args.dataset] - CLIP_MIN[args.dataset])
@@ -296,7 +299,7 @@ def main(args):
     acc_1 = sklearn.metrics.accuracy_score(y_true, y_pred)
     acc_2 = sklearn.metrics.accuracy_score(y_true[idx_correct], y_pred[idx_correct])
     auroc = np.nan
-    if args.dataset != 'imagenet':
+    if args.dataset not in ['imagenet', 'cxr056', 'cxr0456']:
         auroc = sklearn.metrics.roc_auc_score(y_true[idx_correct], y_pred[idx_correct])
     print("Model accuracy on the adversarial test set: %0.2f%% %0.2f%%" % (100 * acc_1, 100 * acc_2))
     log += '\t' + "Model accuracy on the adversarial test set: %0.2f%% %0.2f%%" % (100 * acc_1, 100 * acc_2)
