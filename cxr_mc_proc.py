@@ -38,14 +38,14 @@ def proc(disease_name):
 #         e.submit(proc, dname)
 
 import keras.utils
-class_n = 3
+class_n = 4
 train_x = []
 train_y = []
 test_x = []
 test_y = []
 val_x = []
 val_y = []
-for i, dname in enumerate([disease_list.index[i] for i in (0,5,6)]):
+for i, dname in enumerate([disease_list.index[i] for i in (0,4,5,6)]):
     print(dname)
     print('reading npy ...')
     image_data = np.load(save_dir + dname + '.npy')
@@ -53,6 +53,7 @@ for i, dname in enumerate([disease_list.index[i] for i in (0,5,6)]):
     n_test = (n_image//8)
     n_val = (n_image-n_test)//30
     n_train = n_image - n_test - n_val
+    print('train:val:test = {}:{}:{}'.format(n_train, n_val, n_test))
     test_x.append(image_data[-(n_test+n_val):])
     test_y.append(keras.utils.to_categorical([i] * (n_test+n_val), class_n))
     val_x.append(image_data[-(n_test+n_val):-n_test])
@@ -61,10 +62,10 @@ for i, dname in enumerate([disease_list.index[i] for i in (0,5,6)]):
     train_y.append(keras.utils.to_categorical([i]*n_train, class_n))
 
 print('concatenating...')
-np.save(save_dir + 'ub3_056_train_x.npy', np.concatenate(train_x))
-np.save(save_dir + 'ub3_056_train_y.npy', np.concatenate(train_y))
-np.save(save_dir + 'ub3_056_val_x.npy', np.concatenate(val_x))
-np.save(save_dir + 'ub3_056_val_y.npy', np.concatenate(val_y))
-np.save(save_dir + 'ub3_056_test_x.npy', np.concatenate(val_x))
-np.save(save_dir + 'ub3_056_test_y.npy', np.concatenate(val_y))
+np.save(save_dir + 'ub4_0456_train_x.npy', np.concatenate(train_x))
+np.save(save_dir + 'ub4_0456_train_y.npy', np.concatenate(train_y))
+np.save(save_dir + 'ub4_0456_val_x.npy', np.concatenate(val_x))
+np.save(save_dir + 'ub4_0456_val_y.npy', np.concatenate(val_y))
+np.save(save_dir + 'ub4_0456_test_x.npy', np.concatenate(test_x))
+np.save(save_dir + 'ub4_0456_test_y.npy', np.concatenate(test_y))
 

@@ -37,6 +37,7 @@ CLIP_MIN = {'mnist': -0.5, 'cifar': -0.5, 'svhn': -0.5, 'dr': -1.0, 'cxr': -1.0,
 CLIP_MAX = {'mnist':  0.5, 'cifar':  0.5, 'svhn':  0.5, 'dr':  1.0, 'cxr':  1.0, 'derm':  1.0, 'imagenet':128}
 
 def solve_name_controdiction(model):
+    """solve contradiction of keras namespace by applying enough names"""
     for name in map(lambda x: x.__class__.__name__, model.layers):
         K.get_uid(name)
     K.get_uid('input')
@@ -94,7 +95,7 @@ def analyze(args):
     assert args.dataset in ['mnist', 'cifar-10', 'svhn', 'dr', 'cxr', 'derm', 'imagenet'], \
         "Dataset parameter must be either 'mnist', 'cifar-10', 'svhn', 'dr', 'cxr', or 'derm'"
 
-    # load feature/label data
+    # load data, and model
 
     if args.dataset == 'imagenet':
         flist = glob.glob('data/imagenet/*.jpg')
@@ -127,14 +128,15 @@ def analyze(args):
     get_loss = keras.backend.function([x_in, y_true], [loss])
 
     signed_grad = signed_grad_tf(x_in, y_pred)
-    get_wb_signed_grad = keras.backend.function([x_in], [signed_grad])
+    get_wb_signed_grad = keras.backend.function([x_in], [signed_grad])  # for white-box model
 
     x_in_bb = bbmodel.input
     y_pred_bb = bbmodel.output
     signed_grad_bb = signed_grad_tf(x_in_bb, y_pred_bb)
-    get_bb_signed_grad = keras.backend.function([x_in_bb], [signed_grad_bb])
+    get_bb_signed_grad = keras.backend.function([x_in_bb], [signed_grad_bb])  # for black-box model
 
     def reg(x):
+        """regularize image into [0,1]"""
         if x.shape[-1] == 1:
             x = np.tile(x, [1, 1, 3])
         return (x - x.min()) / (x.max() - x.min())
@@ -153,12 +155,12 @@ def analyze(args):
         sg1, = get_wb_signed_grad([img[None, ...]])
         sg2, = get_bb_signed_grad([img[None, ...]])
 
-        delta = 8 / 255 * (CLIP_MAX[args.dataset] - CLIP_MIN[args.dataset])
+        delta = 8 / 255 * (CLIP_MAX[args.dataset] - CLIP_MIN[args.dataset])  # epsilon change in [0, 8/255]
         # assert img[h1, w1, c1] - delta >= CLIP_MIN[args.dataset] and img[h1, w1, c1] + delta <= CLIP_MAX[args.dataset]
         # assert img[h2, w2, c2] - delta >= CLIP_MIN[args.dataset] and img[h2, w2, c2] + delta <= CLIP_MAX[args.dataset]
-        tick = np.arange(0, delta, 0.5/ 255 * (CLIP_MAX[args.dataset] - CLIP_MIN[args.dataset]))
+        tick = np.arange(0, delta, 0.5/ 255 * (CLIP_MAX[args.dataset] - CLIP_MIN[args.dataset]))  # epsilon list
         n_step = len(tick)
-        losses = np.zeros([n_step, n_step])
+        losses = np.zeros([n_step, n_step])  # loss at (eps1, eps2)
         for j, eps1 in enumerate(tqdm(tick)):
             x = np.tile(img[None, ...] + sg1 * eps1, [n_step, 1, 1, 1])
             x += np.tile(sg2, [n_step, 1, 1, 1]) * tick[..., None, None, None]
@@ -194,6 +196,7 @@ def analyze(args):
 
 
 def restore_surf():
+    """plot surf from saved numpy file"""
     fl = glob.glob('vis/lossplot/surf_*.npy')
     for f in fl:
         surf = np.load(f)
