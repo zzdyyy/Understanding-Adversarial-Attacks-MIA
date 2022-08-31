@@ -37,7 +37,7 @@ def detect(args):
     assert args.dataset in ['mnist', 'cifar-10', 'svhn', 'dr', 'cxr', 'derm'], \
         "Dataset parameter must be either 'mnist', 'cifar-10', 'svhn', 'dr', 'cxr', or 'derm'"
     assert args.attack in ['fgsm', 'bim', 'jsma', 'deepfool', 'pgd', 'ead', 'cw-l2', 'cw-lid',
-                           'fgsm_bb', 'bim_bb', 'jsma_bb', 'deepfool_bb', 'pgd_bb', 'ead_bb', 'cw-l2_bb', 'cw-lid_bb'], \
+                           'fgsm_bb', 'bim_bb', 'jsma_bb', 'deepfool_bb', 'pgd_bb', 'ead_bb', 'cw-l2_bb', 'cw-lid_bb', 'cw-li'], \
         "Attack parameter must be either 'fgsm', 'bim', 'jsma', 'deepfool', " \
         "'pgd', 'ead', 'cw-l2', 'cw-lid'"
 
@@ -90,11 +90,13 @@ def detect(args):
         label[label==2] -= 2
         label[label==3] -= 2
         plt.clf()
+        plt.figure(figsize=[5,5])
         plt.scatter(X_dec[label == 0, 0], X_dec[label == 0, 1], s=9, label='Clean')
         plt.scatter(X_dec[label == 1, 0], X_dec[label == 1, 1], s=9, label='Adversarial')
-        lgd = plt.legend(prop={'weight': 'bold', 'size': 15}, loc='upper right', markerscale=4)
+        if args.dataset == 'dr' and args.attack == 'cw-li':
+            lgd = plt.legend(prop={'weight': 'bold', 'size': 15}, loc='upper right', markerscale=4)
         plt.tight_layout()
-        plt.savefig('vis/tsne/%s_%s.png' % (args.dataset, args.attack))
+        plt.savefig('vis/tsne/tsne_%s_%s.png' % (args.dataset, args.attack))
         # plt.show()
 
 
@@ -117,7 +119,7 @@ if __name__ == "__main__":
     #
     with ProcessPoolExecutor(24) as e:
         for ds in ['derm', 'dr', 'cxr']:
-            for atk in ['fgsm', 'bim', 'pgd', 'deepfool', 'fgsm_bb', 'bim_bb', 'pgd_bb', 'deepfool_bb',]:
+            for atk in ['fgsm', 'bim', 'pgd', 'cw-li',]:
                 argv = ['-d', ds, '-a', atk]
                 print('\n$> ', argv)
                 args = parser.parse_args(argv)

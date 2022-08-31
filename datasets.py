@@ -53,6 +53,7 @@ def get_data(dataset='mnist', clip_min=-0.5, clip_max=0.5, onehot=True, path='da
 
     if dataset in ['dr', 'cxr', 'derm', 'cxr056', 'cxr0456', 'cxr05']:
         if load_feat is not None:
+            print('loading features from data/' + ADV_PREFIX + 'feat_%s_%s.npy' % (dataset, load_feat))
             X_all = np.load('data/' + ADV_PREFIX + 'feat_%s_%s.npy' % (dataset, load_feat))
         else:
             X_all = np.load('adversarial_medicine/numpy_to_share/%s/val_test_x.npy' % dataset).astype('float32')

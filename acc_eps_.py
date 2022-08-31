@@ -59,7 +59,7 @@ for i in range(3):
     plt.xticks(size=15)
     plt.yticks(size=15)
     plt.tight_layout()
-    plt.savefig('vis/acc_eps/acceps_%s.png' % titles[i], dpi=300)
+    plt.savefig('vis/acc_eps/acc_eps_%s.pdf' % titles[i], dpi=300)
     plt.show()
 
 def plot_test_acc_curve(models, model_names):

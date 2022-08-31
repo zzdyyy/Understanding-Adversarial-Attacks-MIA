@@ -82,7 +82,7 @@ for dataset in cxr05 cxr056 cxr0456; do
             python craft_adv_examples.py -d $dataset -a $attack -b 100 -e $eps
         done
     done
-    for attack in bim, pgd; do
+    for attack in bim pgd; do
         for eps in 0.{1..9} 1.0; do
             python craft_adv_examples.py -d $dataset -a $attack -b 100 -e $eps
         done

@@ -197,7 +197,7 @@ def analyze(args):
 
 def restore_surf():
     """plot surf from saved numpy file"""
-    fl = glob.glob('vis/lossplot/surf_*.npy')
+    fl = glob.glob('vis/lossplot3/surf_*.npy')
     for f in fl:
         surf = np.load(f)
         _, ds, id = f.split('_')  # 'cxr', '2.npy'
@@ -207,9 +207,11 @@ def restore_surf():
 
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
-        ax.plot_surface(X_grid, Y_grid, losses, cmap='jet', vmin=-0.02, vmax=0.02)
-        ax.set_zlim(-0.02, 0.02)
-        plt.savefig('vis/lossplot/%s_%s_plot.png' % (ds, id))
+        ax.plot_surface(X_grid, Y_grid, losses, cmap='jet')
+        plt.xlabel(r'$\epsilon_2$')
+        plt.gca().invert_xaxis()
+        plt.ylabel(r'$\epsilon_1$')
+        plt.savefig('vis/lossplot3/lossplot_%s_%s.pdf' % (ds, id))
         plt.show()
 
         return

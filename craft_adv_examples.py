@@ -324,7 +324,7 @@ def main(args):
     log += '\t' + "Average L-i distortion [%s : %0.4f]" % (args.attack, li_diff)
 
     log += '\t' + str(SETTING[args.dataset]) + str(args) + '\n'
-    with open('log/%s.log' % args.dataset, 'a') as f:
+    with open('log/%s_%s.log' % (args.dataset, args.attack), 'a') as f:
         f.write(log)
 
     sess.close()

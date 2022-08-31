@@ -1,32 +1,17 @@
-## Code for paper "Characterizing Adversarial Subspaces Using Local Intrinsic Dimensionality". https://arxiv.org/abs/1801.02613
+- For more info about the medical datasets and classifiers, please refer to https://github.com/sgfin/adversarial-medicine and this paper: https://arxiv.org/pdf/1804.05296.pdf
 
-## Update: added BatchNormalization to after Conv and ReLU. 17 Sept. 2018.
+- For more info about the adversarial attack and defence, please refer to https://github.com/xingjunm/lid_adversarial_subspace_detection
 
-### 1. Pre-train DNN models:
-python train_model.py -d mnist -e 50 -b 128
+- More information about the paper "Understanding Adversarial Attacks on Deep Learning Based Medical Image Analysis Systems" itself requires further collation. It will be updated here.
 
-### 2. Craft adversarial examples:
-python craft_adv_samples.py -d cifar -a cw-l2 -b 100
-
-### 3.Extract detection characteristics:
-python extract_characteristics.py -d cifar -a cw-l2 -r lid -k 20 -b 100
-
-### 4. Train simple detectors:
-python detect_adv_examples.py -d cifar -a fgsm -t cw-l2 -r lid
-
-#### Dependencies:
-python 3.5, tqdm, tensorflow = 1.8, Keras >= 2.0, cleverhans >= 1.0.0 (may need extra change to pass in keras learning rate)
-
-#### Kernal Density and Bayesian Uncertainty are from https://github.com/rfeinman/detecting-adversarial-samples ("Detecting Adversarial Samples from Artifacts" (Feinman et al. 2017))
-
-
-### 1. Pre-train Medical DNN models:
-
-### 2. Craft adversarial examples:
-python craft_adv_samples.py -d derm -a fgsm -b 100
-
-### 3. Extract features & split testing set
-python extract_features.py -d derm -a clean -b 200
-
-### 4. train svms and do detection
-python train_random_svms.py -d derm -a fgsm
+```
+@article{DBLP:journals/pr/MaNGWZBL21,
+  author    = {Xingjun Ma and Yuhao Niu and Lin Gu and Yisen Wang and
+               Yitian Zhao and James Bailey and Feng Lu},
+  title     = {Understanding adversarial attacks on deep learning based medical image analysis systems},
+  journal   = {Pattern Recognit.},
+  volume    = {110},
+  pages     = {107332},
+  year      = {2021}
+}
+```

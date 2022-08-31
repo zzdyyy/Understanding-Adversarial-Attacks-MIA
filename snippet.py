@@ -6,6 +6,6 @@ class c:
     pass
 
 args = c()
-args.dataset = 'dr'
-args.attack = 'bim'
+args.dataset = 'cxr'
+args.attack = 'pgd'
 args.characteristics = 'kd'

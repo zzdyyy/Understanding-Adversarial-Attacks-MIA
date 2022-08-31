@@ -68,13 +68,15 @@ def analyze(args):
         ay = model.predict(aX, verbose=1).argmax(-1)
 
     x_in = model.input
-    resfeatmap = model.get_layer('res3b_branch2a').input
+    resfeatmap = model.get_layer('res5c_branch2a').input
     featmodel = keras.Model(x_in, resfeatmap)
 
-    def reg(x):
+    def reg(x, min=None, max=None):
         if x.shape[-1] == 1:
             x = np.tile(x, [1, 1, 3])
-        return (x - x.min()) / (x.max() - x.min())
+        max = max or x.max()
+        min = min or x.min()
+        return np.clip((x - min) / (max - min), 0., 1.)
 
 
     plot_range = {
@@ -91,7 +93,8 @@ def analyze(args):
             if args.dataset == 'imagenet':
                 img = img[..., ::-1]
 
-            featmap_c = cv2.applyColorMap(((1 - reg(np.mean(featmap, axis=-1))) * 255.9).astype('uint8'), cv2.COLORMAP_JET)
+            print('min, max = ', np.min(np.mean(featmap, axis=-1)), np.max(np.mean(featmap, axis=-1)))
+            featmap_c = cv2.applyColorMap(((1 - reg(np.mean(featmap, axis=-1), 0.2, 1.5)) * 255.9).astype('uint8'), cv2.COLORMAP_JET)
             featmap_c = cv2.resize(featmap_c, (512, 512), interpolation=cv2.INTER_NEAREST)
 
             imageio.imwrite('vis/featmap_adv/%s_%d_%s_y=%d_featmap.png' % (args.dataset, i, advclean, label), featmap_c)
@@ -116,7 +119,6 @@ if __name__ == "__main__":
         help="Attack to use train the discriminator; either 'fgsm', 'bim-a', 'bim-b', 'jsma', 'cw-l2'",
         required=False, type=str
     )
-
 
     # args = parser.parse_args()
     # analyze(args)

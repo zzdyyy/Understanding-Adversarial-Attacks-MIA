@@ -53,7 +53,7 @@ for i, dname in enumerate([disease_list.index[i] for i in (0,4,5,6)]):
     n_test = (n_image//8)
     n_val = (n_image-n_test)//30
     n_train = n_image - n_test - n_val
-    print('train:val:test = {}:{}:{}'.format(n_train, n_val, n_test))
+    print('train:val:test = {}:{}:{}, val+test={}'.format(n_train, n_val, n_test, n_val+n_test))
     test_x.append(image_data[-(n_test+n_val):])
     test_y.append(keras.utils.to_categorical([i] * (n_test+n_val), class_n))
     val_x.append(image_data[-(n_test+n_val):-n_test])
